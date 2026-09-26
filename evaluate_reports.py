@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from generate_report import PROJECT_DIR, PROMPT_VERSION, PROMPT_VERSIONS, run_report
 from loki_parser import parse_loki_response
+from observability import record_evaluation
 from prometheus_parser import parse_prometheus_response
 
 CASES_PATH = PROJECT_DIR / "evals" / "cases.json"
@@ -205,8 +206,20 @@ def main() -> None:
         model_key = hashlib.sha256(model.encode()).hexdigest()[:12]
         for version, case in product(dict.fromkeys(args.prompt_versions), cases):
             print(f"평가 중: {model} / {version} / {case['id']}", flush=True)
-            record = run_report(paths[case["id"]], model=model, prompt_version=version)
+            record = run_report(
+                paths[case["id"]],
+                model=model,
+                prompt_version=version,
+                trace_metadata={
+                    "evaluation_run_id": output.name,
+                    "dataset_version": dataset["version"],
+                    "case_id": case["id"],
+                    "case_group": case.get("group", "regression"),
+                    "synthetic": True,
+                },
+            )
             evaluation = evaluate_record(record, case["expected"])
+            record_evaluation(record, evaluation)
             row = {"case_id": case["id"], "record": record, "evaluation": evaluation}
             rows.append(row)
             record_name = f"{case['id']}-{model_key}-{version}.json"
@@ -222,6 +235,7 @@ def main() -> None:
                     "status": record["status"],
                     "elapsed_seconds": record["elapsed_seconds"],
                     "usage": record.get("usage"),
+                    "telemetry": record.get("telemetry"),
                     "prompt_sha256": record.get("prompt_sha256"),
                     **evaluation,
                 }

@@ -10,6 +10,8 @@ from uuid import uuid4
 from ollama import Client
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from observability import ReportTrace
+
 PROJECT_DIR = Path(__file__).resolve().parent
 ARTIFACTS_DIR = PROJECT_DIR / "artifacts"
 PROMPT_VERSIONS = ("ops_report_v1", "ops_report_v2")
@@ -172,7 +174,11 @@ def validate_references(report: OpsReport, context: dict) -> None:
 
 
 def run_report(
-    loki_path: Path | None, *, model: str, prompt_version: str | None = None
+    loki_path: Path | None,
+    *,
+    model: str,
+    prompt_version: str | None = None,
+    trace_metadata: dict | None = None,
 ) -> dict:
     """수집된 근거로 보고서를 생성한다. 저장 위치는 호출자가 결정한다."""
     version = prompt_version or PROMPT_VERSION
@@ -193,6 +199,7 @@ def run_report(
         "error": None,
     }
     started = perf_counter()
+    trace = ReportTrace(record, trace_metadata)
     stage = "prompt"
     try:
         if version not in PROMPT_VERSIONS:
@@ -234,6 +241,7 @@ def run_report(
         stage = "generation"
         print(f"보고서 생성 중: {model}", flush=True)
         client = Client(host="http://127.0.0.1:11434", timeout=180.0)
+        trace.start_generation()
         response = client.chat(
             model=model,
             messages=messages,
@@ -246,6 +254,7 @@ def run_report(
             "input_tokens": response.prompt_eval_count,
             "output_tokens": response.eval_count,
         }
+        trace.end_generation()
 
         stage = "validation"
         if not response.done or response.done_reason == "length":
@@ -261,6 +270,7 @@ def run_report(
 
     record["completed_at"] = now()
     record["elapsed_seconds"] = round(perf_counter() - started, 3)
+    trace.finish()
     return record
 
 
@@ -278,6 +288,9 @@ def generate_report(
     print(f"상태: {record['status']}")
     print(json.dumps(record["report"] or record["error"], ensure_ascii=False, indent=2))
     print(f"결과 저장: {output}")
+    print(f"Langfuse: {record['telemetry']['status']}")
+    if record["telemetry"].get("trace_url"):
+        print(f"Trace: {record['telemetry']['trace_url']}")
     return 0 if record["status"] == "generated" else 1
 
 
