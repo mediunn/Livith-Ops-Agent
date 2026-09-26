@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from mcp import Client, StdioServerParameters
 from mcp.types import TextContent
 
-
 PROJECT_DIR = Path(__file__).resolve().parent
 
 
@@ -21,7 +20,8 @@ def required_env(name: str) -> str:
     return value
 
 
-async def main() -> None:
+def create_grafana_server() -> StdioServerParameters:
+    """조회 스크립트에서 공통으로 사용하는 읽기 전용 MCP 설정."""
     load_dotenv(PROJECT_DIR / ".env")
 
     grafana_url = required_env("GRAFANA_URL").rstrip("/")
@@ -31,7 +31,7 @@ async def main() -> None:
     if uvx_path is None:
         raise RuntimeError("uvx를 찾을 수 없습니다. PATH를 확인해주세요.")
 
-    server = StdioServerParameters(
+    return StdioServerParameters(
         command=uvx_path,
         args=[
             "mcp-grafana",
@@ -47,7 +47,9 @@ async def main() -> None:
         },
     )
 
-    async with Client(server) as client:
+
+async def main() -> None:
+    async with Client(create_grafana_server()) as client:
         print("1. MCP 연결 성공")
 
         tools = {}

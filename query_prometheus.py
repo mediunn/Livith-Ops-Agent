@@ -1,13 +1,11 @@
 import asyncio
 import json
-import shutil
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from dotenv import load_dotenv
-from mcp import Client, StdioServerParameters
+from mcp import Client
 
-from check_grafana_mcp import PROJECT_DIR, required_env
+from check_grafana_mcp import PROJECT_DIR, create_grafana_server
 from prometheus_parser import parse_prometheus_response
 
 DATASOURCE_UID = "grafanacloud-prom"
@@ -21,29 +19,7 @@ def to_rfc3339(value: datetime) -> str:
 
 
 async def main() -> None:
-    load_dotenv(PROJECT_DIR / ".env")
-
-    uvx_path = shutil.which("uvx")
-    if uvx_path is None:
-        raise RuntimeError("uvx를 찾을 수 없습니다.")
-
-    server = StdioServerParameters(
-        command=uvx_path,
-        args=[
-            "mcp-grafana",
-            "-t",
-            "stdio",
-            "--disable-write",
-            "--enabled-tools",
-            "datasource,prometheus,loki",
-        ],
-        env={
-            "GRAFANA_URL": required_env("GRAFANA_URL").rstrip("/"),
-            "GRAFANA_SERVICE_ACCOUNT_TOKEN": required_env(
-                "GRAFANA_SERVICE_ACCOUNT_TOKEN"
-            ),
-        },
-    )
+    server = create_grafana_server()
 
     # 조회 기준 시각을 한 번만 계산한다.
     # 나중에 Loki에도 같은 시작·종료 시각을 전달한다.
