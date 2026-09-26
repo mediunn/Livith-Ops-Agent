@@ -10,12 +10,18 @@ from uuid import uuid4
 from ollama import Client
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from fact_validation import (
+    Observations,
+    expected_observations,
+    render_facts,
+    validate_observations,
+)
 from observability import ReportTrace
 
 PROJECT_DIR = Path(__file__).resolve().parent
 ARTIFACTS_DIR = PROJECT_DIR / "artifacts"
-PROMPT_VERSIONS = ("ops_report_v1", "ops_report_v2")
-PROMPT_VERSION = "ops_report_v2"
+PROMPT_VERSIONS = ("ops_report_v1", "ops_report_v2", "ops_report_v3")
+PROMPT_VERSION = "ops_report_v3"
 PROMPT_PATH = PROJECT_DIR / "prompts" / f"{PROMPT_VERSION}.txt"
 KNOWN_RATE_QUERY = "sum by (api) (rate(external_api_request_total[5m]))"
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -41,6 +47,18 @@ class OpsReport(BaseModel):
     hypotheses: list[EvidenceClaim] = Field(
         description="원인에 관한 미확인 추론만 작성. 원인 단서가 없으면 빈 배열"
     )
+    limitations: list[NonEmptyText] = Field(min_length=1)
+    next_checks: list[NonEmptyText] = Field(min_length=1)
+
+
+class StructuredOpsReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assessment: Literal[
+        "insufficient_evidence", "needs_investigation", "no_issue_observed"
+    ]
+    observations: Observations
+    hypotheses: list[EvidenceClaim]
     limitations: list[NonEmptyText] = Field(min_length=1)
     next_checks: list[NonEmptyText] = Field(min_length=1)
 
@@ -179,6 +197,8 @@ def run_report(
     model: str,
     prompt_version: str | None = None,
     trace_metadata: dict | None = None,
+    trace_parent=None,
+    investigation: dict | None = None,
 ) -> dict:
     """수집된 근거로 보고서를 생성한다. 저장 위치는 호출자가 결정한다."""
     version = prompt_version or PROMPT_VERSION
@@ -191,15 +211,17 @@ def run_report(
         "started_at": now(),
         "model": model,
         "prompt_version": version,
-        "context_version": "summary-v1" if version == "ops_report_v1" else "summary-v2",
+        "context_version": version.replace("ops_report_", "summary-"),
         "status": "pending",
         "input": None,
         "response": None,
         "report": None,
         "error": None,
+        "validation": {"schema_and_references": False, "observation_values": None},
+        "semantic_review": "pending",
     }
     started = perf_counter()
-    trace = ReportTrace(record, trace_metadata)
+    trace = ReportTrace(record, trace_metadata, parent_span=trace_parent)
     stage = "prompt"
     try:
         if version not in PROMPT_VERSIONS:
@@ -212,7 +234,13 @@ def run_report(
 
         stage = "input"
         context = build_context(loki_path, enriched=version != "ops_report_v1")
-        schema = OpsReport.model_json_schema()
+        if investigation:
+            context["investigation"] = investigation
+        structured = version == "ops_report_v3"
+        expected = expected_observations(context) if structured else None
+        if structured:
+            context["observed_values"] = expected.model_dump(mode="json")
+        schema = (StructuredOpsReport if structured else OpsReport).model_json_schema()
         record["input"] = context
         record["output_schema"] = schema
         messages = [
@@ -222,6 +250,11 @@ def run_report(
                 "content": json.dumps(
                     {
                         "task": (
+                            "observed_values를 observations에 정확히 옮기고 추가 조사 필요성을 판단하라. "
+                            "관측 사실의 자유 서술은 생성하지 않는다. hypotheses는 원인 단서가 없으면 비운다."
+                        )
+                        if structured
+                        else (
                             "두 evidence를 모두 읽고 보고서를 작성하라. "
                             "facts에는 Prometheus 관측값과 Loki 로그 요약을 각각 넣어라. "
                             "로그 수·레벨은 가설이 아니라 관측 사실이다. "
@@ -234,7 +267,11 @@ def run_report(
                 ),
             },
         ]
-        options = {"temperature": 0, "num_ctx": 8192, "num_predict": 2048}
+        options = {
+            "temperature": 0,
+            "num_ctx": 8192,
+            "num_predict": 3072 if structured else 2048,
+        }
         record["messages"] = messages
         record["options"] = options
 
@@ -259,9 +296,35 @@ def run_report(
         stage = "validation"
         if not response.done or response.done_reason == "length":
             raise ValueError("모델 출력이 끝나기 전에 잘렸습니다.")
-        report = OpsReport.model_validate_json(response.message.content or "")
-        validate_references(report, context)
-        record["report"] = report.model_dump(mode="json")
+        if structured:
+            parsed = StructuredOpsReport.model_validate_json(
+                response.message.content or ""
+            )
+            allowed = {item["evidence_id"] for item in context["evidence"]}
+            actual_ids = {
+                parsed.observations.metrics.evidence_id,
+                parsed.observations.logs.evidence_id,
+            }
+            if actual_ids != allowed or any(
+                set(claim.evidence_ids) - allowed for claim in parsed.hypotheses
+            ):
+                raise ValueError("구조화 관측 또는 가설의 근거 ID가 일치하지 않습니다.")
+            record["validation"]["schema_and_references"] = True
+            stage = "factual_validation"
+            record["validation"]["observation_values"] = False
+            validate_observations(parsed.observations, expected)
+            record["validation"]["observation_values"] = True
+            record["report"] = {
+                **parsed.model_dump(mode="json", exclude={"observations"}),
+                "facts": render_facts(expected),
+                "facts_source": "validated_observations_template",
+                "observations": parsed.observations.model_dump(mode="json"),
+            }
+        else:
+            report = OpsReport.model_validate_json(response.message.content or "")
+            validate_references(report, context)
+            record["validation"]["schema_and_references"] = True
+            record["report"] = report.model_dump(mode="json")
         record["status"] = "generated"
     # 실패해도 입력·수신 응답·실패 단계를 남기기 위한 실행 경계.
     except Exception as exc:  # noqa: BLE001

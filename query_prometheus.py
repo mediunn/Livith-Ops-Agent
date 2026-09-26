@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from mcp import Client
@@ -18,9 +19,7 @@ def to_rfc3339(value: datetime) -> str:
     return value.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-async def main() -> None:
-    server = create_grafana_server()
-
+async def collect(*, output_dir: Path | None = None) -> tuple[Path, dict]:
     # 조회 기준 시각을 한 번만 계산한다.
     # 나중에 Loki에도 같은 시작·종료 시각을 전달한다.
     end_time = datetime.now(UTC).replace(microsecond=0)
@@ -55,7 +54,7 @@ async def main() -> None:
     try:
         # 서버 시작·연결·조회 전체에 시간 제한을 둔다.
         async with asyncio.timeout(90):
-            async with Client(server) as client:
+            async with Client(create_grafana_server()) as client:
                 result = await client.call_tool(
                     "query_prometheus",
                     arguments=arguments,
@@ -97,7 +96,7 @@ async def main() -> None:
 
     record["completed_at"] = to_rfc3339(datetime.now(UTC))
 
-    output_dir = PROJECT_DIR / "artifacts"
+    output_dir = output_dir or PROJECT_DIR / "artifacts"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_path = output_dir / (
@@ -112,7 +111,11 @@ async def main() -> None:
 
     print(f"\n조회 상태: {record['status']}")
     print(f"결과 저장: {output_path}")
+    return output_path, record
 
+
+async def main() -> None:
+    _, record = await collect()
     if record["status"] not in {"data_available", "no_data"}:
         raise SystemExit(1)
 

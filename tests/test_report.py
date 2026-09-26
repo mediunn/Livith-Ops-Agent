@@ -8,6 +8,13 @@ import generate_report as report_module
 
 @pytest.fixture
 def evidence(tmp_path, monkeypatch):
+    # 기존 버전의 동작을 보존하는 회귀 검사. v3는 test_facts에서 검증한다.
+    monkeypatch.setattr(report_module, "PROMPT_VERSION", "ops_report_v2")
+    monkeypatch.setattr(
+        report_module,
+        "PROMPT_PATH",
+        report_module.PROJECT_DIR / "prompts/ops_report_v2.txt",
+    )
     monkeypatch.setattr(report_module, "ARTIFACTS_DIR", tmp_path)
     prom = {
         "tool": "query_prometheus",
@@ -140,7 +147,7 @@ def test_missing_prompt_saved_without_model_call(evidence, monkeypatch):
     assert saved["response"] is None
 
 
-@pytest.mark.parametrize("version", report_module.PROMPT_VERSIONS)
+@pytest.mark.parametrize("version", ("ops_report_v1", "ops_report_v2"))
 def test_prompt_selection_and_raw_assessment_preserved(evidence, monkeypatch, version):
     # 기대 분류와 달라도 생성 단계에서 모델의 판단을 덮어쓰지 않는다.
     data = report_data()

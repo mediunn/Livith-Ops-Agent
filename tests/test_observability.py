@@ -189,3 +189,24 @@ def test_model_failure_ends_generation_with_error(record, monkeypatch):
     assert generation.updates[0]["level"] == "ERROR"
     assert generation.updates[0]["usage_details"] == {}
     assert client.root.updates[-1]["level"] == "ERROR"
+
+
+def test_workflow_tool_and_report_parenting(record, monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(obs, "configured_client", lambda: client)
+    parent = obs.ReportTrace(dict(record), name="ops-investigation")
+    step = parent.start_step("query_prometheus", {"expr": "test"})
+    parent.end_step(
+        step,
+        {"status": "no_data", "summary": {}, "response": "raw must not be exported"},
+    )
+    child = obs.ReportTrace(record, parent_span=parent.root)
+    child.start_generation()
+    child.finish()
+    parent.finish()
+    assert [args["name"] for args, span in parent.root.children] == [
+        "query_prometheus",
+        "ops-report",
+    ]
+    assert step.ended
+    assert "raw must not" not in json.dumps(step.updates)

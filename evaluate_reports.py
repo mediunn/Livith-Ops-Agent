@@ -110,7 +110,9 @@ def evaluate_record(record: dict, expected: dict) -> dict:
     generated = record["status"] == "generated"
     report = record["report"] if generated else None
     checks = {
-        "schema_and_references": generated,
+        "schema_and_references": record.get("validation", {}).get(
+            "schema_and_references", generated
+        ),
         "assessment": (
             report["assessment"] in expected["assessments"] if report else False
         ),
@@ -120,6 +122,10 @@ def evaluate_record(record: dict, expected: dict) -> dict:
             else generated
         ),
     }
+    if record.get("prompt_version") == "ops_report_v3":
+        checks["observation_values"] = (
+            record.get("validation", {}).get("observation_values") is True
+        )
     return {
         "checks": checks,
         "automatic_pass": all(checks.values()),

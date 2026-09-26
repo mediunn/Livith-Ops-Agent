@@ -52,9 +52,14 @@ def read_reference(path: Path | None) -> tuple[Path, dict, dict]:
     )
 
 
-async def collect(
-    reference_path: Path | None, *, logql: str, limit: int, discover: bool
-) -> int:
+async def collect_evidence(
+    reference_path: Path | None,
+    *,
+    logql: str,
+    limit: int,
+    discover: bool,
+    output_dir: Path | None = None,
+) -> tuple[Path, dict]:
     path, reference, window = read_reference(reference_path)
     arguments = (
         window
@@ -141,7 +146,7 @@ async def collect(
         record["error_type"] = type(exc).__name__
 
     record["completed_at"] = now()
-    output_dir = PROJECT_DIR / "artifacts"
+    output_dir = output_dir or PROJECT_DIR / "artifacts"
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = "loki-labels" if discover else "loki"
     output_path = (
@@ -163,6 +168,15 @@ async def collect(
         )
     )
     print(f"결과 저장: {output_path}")
+    return output_path, record
+
+
+async def collect(
+    reference_path: Path | None, *, logql: str, limit: int, discover: bool
+) -> int:
+    _, record = await collect_evidence(
+        reference_path, logql=logql, limit=limit, discover=discover
+    )
     return (
         0
         if record["status"] in {"data_available", "no_data", "discovery_completed"}

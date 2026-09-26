@@ -43,19 +43,23 @@ uv run python evaluate_reports.py --case warning_present
 uv run python generate_report.py
 ```
 
+새 근거 수집까지 한 번에 실행하려면 `uv run python run_investigation.py`를 사용합니다.
+이때 `ops-investigation` 아래에 Prometheus·Loki 수집과 보고서 생성이 연결됩니다.
+
 ## 기록 범위
 
 - 프롬프트 원문, 버전·해시, 근거의 조회 조건과 요약, LLM 원문 응답과 최종 보고서
 - 모델 이름, 생성 옵션, 입력·출력 토큰 수, 실행 시간과 실패 종류
 - 평가 실행 ID, 사례 ID, 데이터셋 버전, 합성 데이터 여부
 - `auto_schema_and_references`, `auto_assessment`, `auto_hypotheses_policy` 점수
+- v3 평가의 `auto_observation_values`: 구조화된 관측값이 원본 요약과 일치하는지 검사
 
 추적을 켜면 위 데이터는 설정한 Langfuse 서버로 전송됩니다. 원본 Grafana 응답 전체,
 로그 본문, `.env` 및 로컬 파일 경로는 추적 입력에 넣지 않습니다. 근거 요약에도
 서비스 라벨이나 조회 조건은 포함됩니다. 자동 점수는 조건 통과 여부일 뿐 내용의
 정확도 점수가 아니며, 별도 내용 검토는 계속 필요합니다.
 
-기존 Grafana 수집 과정을 새로 실행한 것처럼 trace에 기록하지 않습니다.
+저장된 근거로 보고서만 생성하면 기존 Grafana 수집을 새 호출로 기록하지 않습니다.
 Ollama 호출 자체의 시간은 generation에, 보고서 처리 과정은 상위 span에 기록합니다.
 로컬 모델의 API 비용이나 전력 비용을 임의의 금액으로 기록하지 않습니다.
 

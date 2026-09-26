@@ -43,7 +43,14 @@ def configured_client():
 
 
 class ReportTrace:
-    def __init__(self, record: dict, metadata: dict | None = None):
+    def __init__(
+        self,
+        record: dict,
+        metadata: dict | None = None,
+        *,
+        parent_span=None,
+        name="ops-report",
+    ):
         self.record = record
         self.client = None
         self.root = None
@@ -63,14 +70,41 @@ class ReportTrace:
         self.state["status"] = "recording"
         self.root = self.safe(
             "start_trace",
-            lambda: self.client.start_observation(
-                name="ops-report",
+            lambda: (parent_span or self.client).start_observation(
+                name=name,
                 as_type="span",
                 metadata=self.metadata,
             ),
         )
         if self.root is not None:
             self.state["trace_id"] = self.root.trace_id
+
+    def start_step(self, name: str, arguments: dict):
+        if self.root is None:
+            return None
+        return self.safe(
+            "start_step",
+            lambda: self.root.start_observation(
+                name=name, as_type="tool", input=arguments
+            ),
+        )
+
+    def end_step(self, span, evidence: dict):
+        if span is None:
+            return
+        error_type = evidence.get("error_type")
+        self.safe(
+            "step_output",
+            lambda: span.update(
+                output={
+                    key: evidence.get(key)
+                    for key in ("evidence_id", "status", "summary")
+                },
+                level="ERROR" if error_type else "DEFAULT",
+                status_message=error_type,
+            ),
+        )
+        self.safe("end_step", span.end)
 
     def safe(self, operation, callback):
         try:
@@ -149,6 +183,8 @@ class ReportTrace:
                     **self.metadata,
                     "prompt_sha256": self.record.get("prompt_sha256"),
                     "error_type": error_type,
+                    "validation": self.record.get("validation"),
+                    "semantic_review": "pending",
                 },
                 level="ERROR" if error_type else "DEFAULT",
                 status_message=error_type,

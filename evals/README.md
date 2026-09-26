@@ -46,7 +46,7 @@ uv run python evaluate_reports.py --case warning_present --models qwen2.5:3b
 
 ## v1 / v2 비교 범위
 
-기본 보고서와 평가는 v2를 사용합니다. `generate_report.py --prompt-version
+v1·v2는 기존 비교 기준으로 보존합니다. `generate_report.py --prompt-version
 ops_report_v1`로 이전 버전을 실행할 수 있습니다. v1은 기존 프롬프트와 요약 입력을
 유지하고, v2는 새 프롬프트와 단위 설명이 추가된 입력을 사용합니다. 따라서 결과는
 프롬프트 하나의 효과가 아니라 **프롬프트와 입력 개선을 합친 효과**입니다.
@@ -65,3 +65,21 @@ v2는 확인된 외부 API rate 쿼리에만 `requests_per_second`, 300초 계�
 
 모든 실행 결과에는 `prompt_version`, `context_version`, 프롬프트 원문과 해시가
 저장됩니다. 버전별 파일명을 분리해 같은 모델의 결과가 서로 덮어써지지 않습니다.
+
+## v3 관측값 검증
+
+기본 보고서와 평가는 이제 v3입니다. v3는 출력 스키마와 관측 사실 작성 방식이
+바뀌었으므로 v1·v2와의 차이를 단순 프롬프트 성능 향상으로 해석하지 마세요.
+입력 `observed_values`에는 정답 분류가 아닌 파싱된 관측값이 들어갑니다.
+모델이 반환한 `observations`를 원본 요약과 대조하고, 통과하면 코드가 사실 문장을
+작성합니다. 값이 틀리면 `factual_validation_error`와 모델 원문을 저장합니다.
+
+평가에 `observation_values` 검사를 추가했고 Langfuse에는
+`auto_observation_values`로 기록합니다. 이 점수는 관측값 복사·보존 검증이며 자유
+서술 정확도 점수가 아닙니다. v1·v2는 이 검사를 하지 않으므로 점수를 부여하지 않습니다.
+가설·한계·다음 확인 사항 및 상태 분류는 계속 별도로 검토해야 합니다.
+
+```bash
+uv run python evaluate_reports.py --prompt-versions ops_report_v3
+uv run python evaluate_reports.py --prompt-versions ops_report_v2 ops_report_v3 --case warning_present
+```
