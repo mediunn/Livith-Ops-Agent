@@ -1,7 +1,10 @@
 # 운영 보고서 평가
 
-`cases.json`은 운영 데이터가 아닌 합성 사례 4개와 검토 기준입니다.
-요청률 0, 데이터 없음, 경고 로그, 로그 잘림을 각각 다룹니다.
+`cases.json`은 운영 데이터가 아닌 합성 사례 6개와 검토 기준입니다.
+기존 네 사례는 요청률 0, 데이터 없음, 경고 로그, 로그 잘림을 다룹니다.
+v2에서 추가한 두 사례는 유효하지 않은 수치와 소수 요청률·오류 로그를 다룹니다.
+기존 사례의 기대 분류는 변경하지 않았습니다. 새 사례는 이번 변경 후 처음 실행하는
+추가 검증이며 대규모 독립 평가 세트는 아닙니다.
 기대 분류와 검토 기준은 모델에 전달하지 않습니다.
 
 프로젝트 루트에서 실행합니다.
@@ -12,6 +15,9 @@ uv run python evaluate_reports.py --dry-run
 
 # 기본 3B 모델로 전체 사례 실행
 uv run python evaluate_reports.py
+
+# 같은 모델에서 v1과 v2 비교
+uv run python evaluate_reports.py --prompt-versions ops_report_v1 ops_report_v2
 
 # 설치된 두 모델을 같은 입력·프롬프트·생성 옵션으로 비교
 uv run python evaluate_reports.py --models qwen2.5:3b huihui_ai/qwen2.5-abliterate:14b-instruct
@@ -37,3 +43,25 @@ uv run python evaluate_reports.py --case warning_present --models qwen2.5:3b
 결과에 남고 다음 사례를 계속 실행합니다. 다운로드나 실제 Grafana 조회는 하지 않습니다.
 모델 로딩과 캐시가 실행 시간에 영향을 주므로 1회 실행으로 속도 우열을 확정하지 마세요.
 이 작은 사례 집합의 결과는 모델의 일반적 정확도를 나타내지 않습니다.
+
+## v1 / v2 비교 범위
+
+기본 보고서와 평가는 v2를 사용합니다. `generate_report.py --prompt-version
+ops_report_v1`로 이전 버전을 실행할 수 있습니다. v1은 기존 프롬프트와 요약 입력을
+유지하고, v2는 새 프롬프트와 단위 설명이 추가된 입력을 사용합니다. 따라서 결과는
+프롬프트 하나의 효과가 아니라 **프롬프트와 입력 개선을 합친 효과**입니다.
+원본 조회 조건과 요약값, 출력 스키마, 생성 옵션은 같습니다.
+
+v2의 assessment는 서비스 상태 판단을 위한 조사 필요성을 나타냅니다.
+경고·오류가 있으면 추가 조사, 그런 징후가 없어도 필요한 근거나 평가 기준이 없으면
+근거 부족을 선택하도록 프롬프트에 우선순위를 명시했습니다. 이는 이 프로젝트의
+분류 정책이며 범용 SRE 표준은 아닙니다. 모델의 분류를 코드에서 덮어쓰지 않습니다.
+
+v2는 확인된 외부 API rate 쿼리에만 `requests_per_second`, 300초 계산 구간,
+조회 조건의 step을 설명으로 붙입니다. 알 수 없는 쿼리의 단위는 `unknown`입니다.
+`sample_count`는 반환된 평가 시점 수이며 요청 건수가 아닙니다.
+[Prometheus rate 문서](https://prometheus.io/docs/prometheus/latest/querying/functions/#rate),
+[range query 문서](https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries)를 참고했습니다.
+
+모든 실행 결과에는 `prompt_version`, `context_version`, 프롬프트 원문과 해시가
+저장됩니다. 버전별 파일명을 분리해 같은 모델의 결과가 서로 덮어써지지 않습니다.

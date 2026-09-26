@@ -138,3 +138,28 @@ def test_missing_prompt_saved_without_model_call(evidence, monkeypatch):
     saved = json.loads(next(evidence.parent.glob("report-*.json")).read_text())
     assert saved["status"] == "prompt_error"
     assert saved["response"] is None
+
+
+@pytest.mark.parametrize("version", report_module.PROMPT_VERSIONS)
+def test_prompt_selection_and_raw_assessment_preserved(evidence, monkeypatch, version):
+    # 기대 분류와 달라도 생성 단계에서 모델의 판단을 덮어쓰지 않는다.
+    data = report_data()
+    data["assessment"] = "no_issue_observed"
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def chat(self, **kwargs):
+            return ChatResponse(
+                message={"role": "assistant", "content": json.dumps(data)},
+                done=True,
+                done_reason="stop",
+            )
+
+    monkeypatch.setattr(report_module, "Client", FakeClient)
+    result = report_module.run_report(evidence, model="test", prompt_version=version)
+    assert result["status"] == "generated"
+    assert result["prompt_version"] == version
+    assert result["report"]["assessment"] == "no_issue_observed"
+    assert ("coverage" in result["input"]) == (version == "ops_report_v2")

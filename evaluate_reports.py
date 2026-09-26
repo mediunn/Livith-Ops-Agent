@@ -4,10 +4,11 @@ import argparse
 import hashlib
 import json
 from datetime import UTC, datetime
+from itertools import product
 from pathlib import Path
 from uuid import uuid4
 
-from generate_report import PROJECT_DIR, run_report
+from generate_report import PROJECT_DIR, PROMPT_VERSION, PROMPT_VERSIONS, run_report
 from loki_parser import parse_loki_response
 from prometheus_parser import parse_prometheus_response
 
@@ -139,7 +140,7 @@ def write_review(path: Path, rows: list[dict]) -> None:
         record = row["record"]
         evaluation = row["evaluation"]
         lines += [
-            f"## {row['case_id']} / {record['model']}",
+            f"## {row['case_id']} / {record['model']} / {record['prompt_version']}",
             "",
             f"- 생성 상태: {record['status']}",
             f"- 자동 검사: {evaluation['checks']}",
@@ -161,9 +162,17 @@ def write_review(path: Path, rows: list[dict]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="합성 근거 4개로 로컬 모델 비교")
+    parser = argparse.ArgumentParser(
+        description="합성 근거로 로컬 모델·프롬프트 버전 비교"
+    )
     parser.add_argument("--models", nargs="+", default=["qwen2.5:3b"])
     parser.add_argument("--case", help="특정 사례 ID만 실행")
+    parser.add_argument(
+        "--prompt-versions",
+        nargs="+",
+        choices=PROMPT_VERSIONS,
+        default=[PROMPT_VERSION],
+    )
     parser.add_argument(
         "--dry-run", action="store_true", help="모델 호출 없이 근거 생성"
     )
@@ -194,18 +203,21 @@ def main() -> None:
     # 모델별로 순차 실행해 로딩 경합과 메모리 부담을 줄인다.
     for model in dict.fromkeys(args.models):
         model_key = hashlib.sha256(model.encode()).hexdigest()[:12]
-        for case in cases:
-            print(f"평가 중: {model} / {case['id']}", flush=True)
-            record = run_report(paths[case["id"]], model=model)
+        for version, case in product(dict.fromkeys(args.prompt_versions), cases):
+            print(f"평가 중: {model} / {version} / {case['id']}", flush=True)
+            record = run_report(paths[case["id"]], model=model, prompt_version=version)
             evaluation = evaluate_record(record, case["expected"])
             row = {"case_id": case["id"], "record": record, "evaluation": evaluation}
             rows.append(row)
-            record_name = f"{case['id']}-{model_key}.json"
+            record_name = f"{case['id']}-{model_key}-{version}.json"
             write_json(output / record_name, row)
             summary["results"].append(
                 {
                     "case_id": case["id"],
+                    "case_group": case.get("group", "regression"),
                     "model": model,
+                    "prompt_version": record["prompt_version"],
+                    "context_version": record["context_version"],
                     "file": record_name,
                     "status": record["status"],
                     "elapsed_seconds": record["elapsed_seconds"],

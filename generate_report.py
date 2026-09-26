@@ -12,8 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 PROJECT_DIR = Path(__file__).resolve().parent
 ARTIFACTS_DIR = PROJECT_DIR / "artifacts"
-PROMPT_VERSION = "ops_report_v1"
+PROMPT_VERSIONS = ("ops_report_v1", "ops_report_v2")
+PROMPT_VERSION = "ops_report_v2"
 PROMPT_PATH = PROJECT_DIR / "prompts" / f"{PROMPT_VERSION}.txt"
+KNOWN_RATE_QUERY = "sum by (api) (rate(external_api_request_total[5m]))"
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -70,7 +72,32 @@ def parse_time(value: str) -> datetime:
     return parsed
 
 
-def build_context(loki_path: Path | None) -> dict:
+def metric_semantics(arguments: dict) -> dict:
+    """확인된 쿼리만 설명한다. 임의의 PromQL에 단위를 추측해 붙이지 않는다."""
+    result = {
+        "query_step_seconds": arguments.get("stepSeconds"),
+        "sample_count_meaning": "반환된 평가 시점의 수이며 요청 건수가 아님",
+        "unit": "unknown",
+    }
+    expression = arguments.get("expr", "")
+    if isinstance(expression, str) and "".join(expression.split()) == "".join(
+        KNOWN_RATE_QUERY.split()
+    ):
+        result.update(
+            {
+                "unit": "requests_per_second",
+                "unit_ko": "초당 요청 수",
+                "rate_window_seconds": 300,
+                "rate_window_meaning": "각 평가 시점 직전 5분으로 평균 초당 증가율을 계산",
+                "query_step_meaning": "쿼리 평가 시점 간 간격이며 원본 수집 간격은 아님",
+                "scope": "api별 외부 API 요청률; 전체 서비스 요청률이나 성공률이 아님",
+                "environment_filter": "none",
+            }
+        )
+    return result
+
+
+def build_context(loki_path: Path | None, *, enriched: bool = True) -> dict:
     """서로 연결된 근거의 요약만 전달한다. 원본 로그는 포함하지 않는다."""
     if loki_path is None:
         candidates = list(ARTIFACTS_DIR.glob("loki-[0-9]*.json"))
@@ -104,7 +131,7 @@ def build_context(loki_path: Path | None) -> dict:
     ):
         raise ValueError("Prometheus와 Loki의 조회 시간이 다릅니다.")
 
-    return {
+    context = {
         "window": {"start": prom_args["startTime"], "end": prom_args["endTime"]},
         "scope": "수집된 조회 결과의 요약만 제공. 로그 본문은 미포함.",
         "evidence": [
@@ -118,6 +145,18 @@ def build_context(loki_path: Path | None) -> dict:
             for item in (prom, loki)
         ],
     }
+    if enriched:
+        context["assessment_scope"] = "service_health_triage"
+        context["coverage"] = {
+            "log_bodies_included": False,
+            "service_health_criteria_provided": False,
+            "description": (
+                "외부 API 지표와 로그 요약만 제공한다. "
+                "서비스 HTTP 오류율·지연·가용성 기준 및 SLO는 포함하지 않는다."
+            ),
+        }
+        context["evidence"][0]["measurement"] = metric_semantics(prom_args)
+    return context
 
 
 def validate_references(report: OpsReport, context: dict) -> None:
@@ -132,14 +171,21 @@ def validate_references(report: OpsReport, context: dict) -> None:
         raise ValueError(f"facts에서 누락된 근거 ID: {sorted(missing)}")
 
 
-def run_report(loki_path: Path | None, *, model: str) -> dict:
+def run_report(
+    loki_path: Path | None, *, model: str, prompt_version: str | None = None
+) -> dict:
     """수집된 근거로 보고서를 생성한다. 저장 위치는 호출자가 결정한다."""
+    version = prompt_version or PROMPT_VERSION
+    prompt_path = (
+        PROJECT_DIR / "prompts" / f"{version}.txt" if prompt_version else PROMPT_PATH
+    )
     run_id = str(uuid4())
     record = {
         "run_id": run_id,
         "started_at": now(),
         "model": model,
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": version,
+        "context_version": "summary-v1" if version == "ops_report_v1" else "summary-v2",
         "status": "pending",
         "input": None,
         "response": None,
@@ -149,14 +195,16 @@ def run_report(loki_path: Path | None, *, model: str) -> dict:
     started = perf_counter()
     stage = "prompt"
     try:
-        system_prompt = PROMPT_PATH.read_text(encoding="utf-8").strip()
+        if version not in PROMPT_VERSIONS:
+            raise ValueError(f"지원하지 않는 프롬프트 버전: {version}")
+        system_prompt = prompt_path.read_text(encoding="utf-8").strip()
         if not system_prompt:
-            raise ValueError(f"프롬프트가 비어 있습니다: {PROMPT_PATH}")
+            raise ValueError(f"프롬프트가 비어 있습니다: {prompt_path}")
         record["system_prompt"] = system_prompt
         record["prompt_sha256"] = hashlib.sha256(system_prompt.encode()).hexdigest()
 
         stage = "input"
-        context = build_context(loki_path)
+        context = build_context(loki_path, enriched=version != "ops_report_v1")
         schema = OpsReport.model_json_schema()
         record["input"] = context
         record["output_schema"] = schema
@@ -216,8 +264,10 @@ def run_report(loki_path: Path | None, *, model: str) -> dict:
     return record
 
 
-def generate_report(loki_path: Path | None, *, model: str) -> int:
-    record = run_report(loki_path, model=model)
+def generate_report(
+    loki_path: Path | None, *, model: str, prompt_version: str | None = None
+) -> int:
+    record = run_report(loki_path, model=model, prompt_version=prompt_version)
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     output = ARTIFACTS_DIR / (
         f"report-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{record['run_id'][:8]}.json"
@@ -235,10 +285,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ollama 운영 보고서 생성")
     parser.add_argument("--model", default="qwen2.5:3b")
     parser.add_argument("--loki-evidence", type=Path)
+    parser.add_argument(
+        "--prompt-version", choices=PROMPT_VERSIONS, default=PROMPT_VERSION
+    )
     args = parser.parse_args()
     if not args.model.strip() or args.model.endswith("-cloud"):
         parser.error("설치된 로컬 모델 이름을 지정하세요.")
-    raise SystemExit(generate_report(args.loki_evidence, model=args.model))
+    raise SystemExit(
+        generate_report(
+            args.loki_evidence, model=args.model, prompt_version=args.prompt_version
+        )
+    )
 
 
 if __name__ == "__main__":
