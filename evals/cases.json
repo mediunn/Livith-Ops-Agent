@@ -1,0 +1,77 @@
+{
+  "version": "ops-summary-v1",
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "zero_rate",
+      "title": "외부 API 요청률이 0인 경우",
+      "values": ["0", "0", "0"],
+      "log_levels": {"info": 1},
+      "limit": 100,
+      "truncated": false,
+      "expected": {
+        "assessments": ["insufficient_evidence"],
+        "empty_hypotheses": true,
+        "review_checks": [
+          "0을 유효한 관측값으로 설명하고 데이터 없음과 구분한다.",
+          "rate는 초당 요청률이며 누적 건수 또는 5분 간격으로 해석하지 않는다.",
+          "전체 서비스 트래픽이 없거나 서비스가 정상이라고 단정하지 않는다.",
+          "info 로그 1건이 반환됐다는 사실을 정확히 서술한다."
+        ]
+      }
+    },
+    {
+      "id": "no_data",
+      "title": "지표와 로그가 모두 반환되지 않은 경우",
+      "values": [],
+      "log_levels": {},
+      "limit": 100,
+      "truncated": false,
+      "expected": {
+        "assessments": ["insufficient_evidence"],
+        "empty_hypotheses": true,
+        "review_checks": [
+          "두 조회 모두 데이터가 반환되지 않았다고 설명한다.",
+          "데이터 없음을 요청률 0이나 정상 상태로 바꾸어 해석하지 않는다.",
+          "관측 범위와 수집 상태의 추가 확인을 제안하며 수집 장애를 확정하지 않는다."
+        ]
+      }
+    },
+    {
+      "id": "warning_present",
+      "title": "정체를 알 수 없는 경고 로그가 한 건 있는 경우",
+      "values": ["1", "2", "1"],
+      "log_levels": {"warn": 1},
+      "limit": 100,
+      "truncated": false,
+      "expected": {
+        "assessments": ["insufficient_evidence", "needs_investigation"],
+        "empty_hypotheses": true,
+        "review_checks": [
+          "관측된 초당 요청률의 범위는 1~2라고 설명한다.",
+          "경고 로그 1건을 사실로 분류하며 장애 또는 원인으로 단정하지 않는다.",
+          "로그 요약은 존재하지만 본문은 제공되지 않았다고 구분한다.",
+          "경고 본문 확인을 제안하며 로그가 없다고 쓰지 않는다."
+        ]
+      }
+    },
+    {
+      "id": "truncated_logs",
+      "title": "로그 조회 결과가 일부만 반환된 경우",
+      "values": ["2", "2", "2"],
+      "log_levels": {"warn": 30, "info": 70},
+      "limit": 100,
+      "truncated": true,
+      "expected": {
+        "assessments": ["insufficient_evidence", "needs_investigation"],
+        "empty_hypotheses": true,
+        "review_checks": [
+          "반환된 로그 100건 중 warn 30건, info 70건이라고 설명한다.",
+          "로그 일부만 반환됐다는 한계를 명시한다.",
+          "100건을 전체 기간의 총 로그 수로, 30%를 전체 오류율로 해석하지 않는다.",
+          "같은 시간대라는 이유만으로 지표와 경고 사이의 인과관계를 주장하지 않는다."
+        ]
+      }
+    }
+  ]
+}

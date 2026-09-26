@@ -132,7 +132,8 @@ def validate_references(report: OpsReport, context: dict) -> None:
         raise ValueError(f"facts에서 누락된 근거 ID: {sorted(missing)}")
 
 
-def generate_report(loki_path: Path | None, *, model: str) -> int:
+def run_report(loki_path: Path | None, *, model: str) -> dict:
+    """수집된 근거로 보고서를 생성한다. 저장 위치는 호출자가 결정한다."""
     run_id = str(uuid4())
     record = {
         "run_id": run_id,
@@ -212,9 +213,14 @@ def generate_report(loki_path: Path | None, *, model: str) -> int:
 
     record["completed_at"] = now()
     record["elapsed_seconds"] = round(perf_counter() - started, 3)
+    return record
+
+
+def generate_report(loki_path: Path | None, *, model: str) -> int:
+    record = run_report(loki_path, model=model)
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     output = ARTIFACTS_DIR / (
-        f"report-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{run_id[:8]}.json"
+        f"report-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{record['run_id'][:8]}.json"
     )
     output.write_text(
         json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
