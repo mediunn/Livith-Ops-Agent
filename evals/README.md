@@ -1,5 +1,10 @@
 # 운영 보고서 평가
 
+[문서 목록](../docs/README.md) · [프로젝트 사용법](../README.md)
+
+이 평가기는 고정 보고서용입니다. LangGraph Agent의 도구 선택·종료 판단을 같은 사례로
+비교하는 어댑터는 아직 없습니다. Agent 자동 테스트와 모델 판단 품질 평가는 구분합니다.
+
 `cases.json`은 운영 데이터가 아닌 합성 사례 6개와 검토 기준입니다.
 기존 네 사례는 요청률 0, 데이터 없음, 경고 로그, 로그 잘림을 다룹니다.
 v2에서 추가한 두 사례는 유효하지 않은 수치와 소수 요청률·오류 로그를 다룹니다.
@@ -46,7 +51,7 @@ uv run python evaluate_reports.py --case warning_present --models qwen2.5:3b
 
 ## v1 / v2 비교 범위
 
-v1·v2는 기존 비교 기준으로 보존합니다. `generate_report.py --prompt-version
+v1·v2는 기존 비교 기준으로 보존합니다. `python -m ops_agent.reporting.generator --prompt-version
 ops_report_v1`로 이전 버전을 실행할 수 있습니다. v1은 기존 프롬프트와 요약 입력을
 유지하고, v2는 새 프롬프트와 단위 설명이 추가된 입력을 사용합니다. 따라서 결과는
 프롬프트 하나의 효과가 아니라 **프롬프트와 입력 개선을 합친 효과**입니다.

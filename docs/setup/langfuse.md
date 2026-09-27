@@ -1,6 +1,9 @@
 # Langfuse 연결
 
+[문서 목록](../README.md) · [프로젝트 사용법](../../README.md)
+
 LLM 실행은 로컬 Ollama가 수행하고, Langfuse는 그 실행의 관측과 평가 기록을 보관합니다.
+아래 명령은 프로젝트 루트에서 실행합니다. 공통 추적 코드는 `ops_agent/telemetry/langfuse.py`에 있습니다.
 
 ## 프로젝트와 키 준비
 
@@ -40,11 +43,13 @@ uv run python evaluate_reports.py --case warning_present
 있습니다. 실제 저장된 운영 근거로 실행하려면 다음 명령을 사용합니다.
 
 ```bash
-uv run python generate_report.py
+uv run python -m ops_agent.reporting.generator
 ```
 
 새 근거 수집까지 한 번에 실행하려면 `uv run python run_investigation.py`를 사용합니다.
 이때 `ops-investigation` 아래에 Prometheus·Loki 수집과 보고서 생성이 연결됩니다.
+`uv run python run_agent.py`를 사용하면 실행·재개별 `ops-agent` trace에 조회 도구와
+`ollama-planner`가 연결됩니다. 조사 ID는 metadata에 기록됩니다.
 
 ## 기록 범위
 
