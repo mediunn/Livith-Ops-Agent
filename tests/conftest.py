@@ -14,7 +14,7 @@ def disable_live_tracing(monkeypatch):
 @pytest.fixture
 def state(tmp_path, monkeypatch):
     monkeypatch.setattr(session, "AGENT_ROOT", tmp_path)
-    return session.initial_state(
+    result = session.initial_state(
         SimpleNamespace(
             model="qwen2.5:3b",
             symptom="test",
@@ -22,3 +22,15 @@ def state(tmp_path, monkeypatch):
         ),
         "test-thread",
     )
+
+    # v3 자유 문장·참조 정책의 역사적 회귀 검사를 유지한다.
+    result["version"] = 3
+    result["request"]["compare_previous"] = False
+    return result
+
+
+@pytest.fixture
+def current_state(state):
+    state["version"] = 4
+    state["request"]["compare_previous"] = True
+    return state

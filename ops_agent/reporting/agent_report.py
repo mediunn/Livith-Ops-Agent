@@ -4,12 +4,15 @@ import time
 
 from ops_agent.agent.budget import read_budget
 from ops_agent.agent.claims import CLAIM_POLICY_VERSION, verified_claims
+from ops_agent.agent.policy import POLICY_VERSION, RATIONALES, coverage, narrative
 from ops_agent.agent.state import READABLE_STATUSES
 
 
 def build_report(state: dict) -> dict:
     last = state["decisions"][-1] if state["decisions"] else None
-    model_finished = state["stop_reason"] == "model_finished"
+    current_contract = state.get("version", 3) >= 4
+    missing = coverage(state)["missing"] if current_contract else []
+    model_finished = state["stop_reason"] == "model_finished" and not missing
     final_decision = last if model_finished else None
     current = next(
         (item for item in state["evidence"] if item["action"] == "current_metrics"),
@@ -40,7 +43,7 @@ def build_report(state: dict) -> dict:
         limitations.append("최소 지표·로그 관측 범위가 부족하다.")
     if not model_finished:
         limitations.append(f"제한 또는 오류로 조사 종료: {state['stop_reason']}")
-    return {
+    report = {
         "report_version": "agent-report-v3",
         "claim_policy_version": CLAIM_POLICY_VERSION,
         "verified_claims": [
@@ -92,3 +95,32 @@ def build_report(state: dict) -> dict:
         "semantic_review": "pending",
         "completed_at": time.time(),
     }
+
+    if current_contract:
+        report.update(narrative(state))
+        report.update(
+            report_version="agent-report-v4",
+            investigation_policy_version=POLICY_VERSION,
+            required_checks=coverage(state),
+            assessment_source="observation_policy",
+            model_assessment=None,
+            verified_claims=verified_claims(state),
+            selected_claim_ids=final_decision.get("claim_ids", [])
+            if final_decision
+            else [],
+            decisions=[
+                {
+                    "action": d["action"],
+                    "claim_ids": d.get("claim_ids", []),
+                    "rationale": RATIONALES[d["action"]],
+                    "narrative_source": "code_generated",
+                }
+                for d in state["decisions"]
+            ],
+        )
+        if not model_finished:
+            report["assessment"] = "insufficient_evidence"
+            report["limitations"].append(f"조사 미완료: {state['stop_reason']}")
+        if state["stop_reason"] == "model_finished" and missing:
+            report["stop_reason"] = "required_checks_missing"
+    return report

@@ -26,7 +26,9 @@ OPS_LANGFUSE_ENABLED=true uv run python evaluate_agent.py --case rate_increase -
 
 자동 검사는 완료 여부, 요청한 이전 구간 비교·로그 조회, 기대 관측 선택, 가설 정책,
 문장 끝 형식과 조회 중복을 확인합니다. 문법·의미 정확성이나 조회 효율 점수는 아닙니다.
-예를 들어 `추가 정보를 얻.`처럼 마침표만 있는 불완전 문장은 형식 검사를 통과할 수 있습니다.
+v4 Agent의 문장은 코드가 작성하므로 문장 끝 검사를 모델 문장 품질 점수로 해석하지 않습니다.
+필수 조회 완료와 코드 설명 출처도 별도 검사합니다. 이전 v3 모델은 `추가 정보를 얻.`처럼
+문장부호만 있는 불완전 문장도 형식 검사를 통과할 수 있었습니다.
 `semantic_review`는 별도 검토 전까지 `pending`입니다.
 
 결과 목록·토큰·시간은 `artifacts/evaluations/agent-<ID>/summary.json`, 각 실행의
@@ -34,7 +36,8 @@ OPS_LANGFUSE_ENABLED=true uv run python evaluate_agent.py --case rate_increase -
 실패도 보존하고 다음 사례를 계속 실행하며 하나라도 자동 검사를 실패하면 종료 코드 1입니다.
 Langfuse에는 합성 평가임을 명시하고 자동 조건 점수를 남깁니다.
 
-[전체 루프의 실제 실행 결과와 남은 한계](agent-loop-validation.md)를 별도로 기록합니다.
+[이전 전체 루프 결과](agent-loop-validation.md)와
+[필수 조사·코드 설명 정책 검증 결과](agent-policy-validation.md)를 별도로 기록합니다.
 
 ## 고정 보고서와 기존 회귀 검사
 
@@ -42,7 +45,8 @@ Langfuse에는 합성 평가임을 명시하고 자동 조건 점수를 남깁�
 합성 데이터로 재구성했으며, 참조 검사 기대값과 의미적 검토 기준을 분리합니다.
 기존 참조 검사만으로는 미조회 구간 단정과 요청률 0의 장애 단정을 검출하지 못했습니다.
 `expected_validation_error`는 당시 기대값을 보존하며 `expected_claim_validation_error`는
-현재 관측 정책을 적용한 기대값입니다. 현재는 선택할 검증 관측이 없는 가설을 거부합니다.
+이전 v3 관측 정책을 적용한 기대값입니다. 이전 정책은 선택할 검증 관측이 없는 가설을 거부합니다.
+이 사례는 v3 회귀 검사로 보존합니다. 새 v4 모델은 action·claim_ids만 출력합니다.
 이를 모든 가설 내용의 정확성 검증으로 해석하지 않습니다. 이 파일은
 `tests/test_agent.py`의 회귀 검사에서 사용하며 고정 보고서 평가기의 데이터셋은 아닙니다.
 [기존 참조 검사 결과](agent-reference-validation.md)와

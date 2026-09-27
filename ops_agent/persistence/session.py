@@ -72,6 +72,7 @@ def display_request(state: dict) -> None:
         f"{request['environment']} / {request['investigation_type']}"
     )
     print(f"조회 구간(UTC): {state['window']['start']} ~ {state['window']['end']}")
+    print(f"직전 구간 비교 필수: {request.get('compare_previous', '이전 요청에 없음')}")
     print(f"입력 해석 시간대: {request['timezone']}")
     print(f"기본값 적용: {', '.join(request['defaults_applied']) or '없음'}")
 

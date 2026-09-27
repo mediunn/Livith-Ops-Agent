@@ -26,6 +26,7 @@ class InvestigationRequest(BaseModel):
     environment: Literal["unspecified"]
     investigation_type: Literal["external_api"]
     timezone: str
+    compare_previous: bool = Field(default=True, strict=True)
     start_at: AwareDatetime
     end_at: AwareDatetime
     symptom: str = Field(min_length=1, max_length=1000)
@@ -125,6 +126,7 @@ def request_from_args(args) -> InvestigationRequest:
         environment=resolve("environment", "unspecified"),
         investigation_type=resolve("investigation_type", "external_api"),
         timezone=timezone,
+        compare_previous=resolve("compare_previous", True),
         start_at=start,
         end_at=end,
         symptom=resolve("symptom", DEFAULT_SYMPTOM),

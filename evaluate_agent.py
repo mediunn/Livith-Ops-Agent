@@ -105,7 +105,12 @@ def evaluate_state(state: dict, expected: dict) -> dict:
     actions = [item["action"] for item in state["evidence"]]
     decisions = state["decisions"]
     completed = report.get("status") == "completed"
-    selected_kinds = {c["kind"] for c in report.get("verified_claims", [])}
+    selected_ids = report.get("selected_claim_ids")
+    selected_kinds = {
+        c["kind"]
+        for c in report.get("verified_claims", [])
+        if selected_ids is None or c["claim_id"] in selected_ids
+    }
     checks = {
         "completed": completed,
         "requested_comparison_and_logs": (
@@ -126,6 +131,15 @@ def evaluate_state(state: dict, expected: dict) -> dict:
         ),
         "no_repeated_tools": len(actions) == len(set(actions)),
     }
+    if state.get("version", 3) >= 4:
+        checks["required_checks_complete"] = completed and not report.get(
+            "required_checks", {}
+        ).get("missing", ["unknown"])
+        checks["code_generated_narrative"] = (
+            report.get("narrative_source") == "code_generated"
+            and report.get("health_assessment") == "not_evaluated"
+            and report.get("model_assessment") is None
+        )
     return {
         "checks": checks,
         "automatic_pass": all(checks.values()),

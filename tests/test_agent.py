@@ -63,7 +63,9 @@ def mock_graph(monkeypatch, calls):
     async def collect(state, trace=None):
         reserve(state, "tool")
         calls.append(state["action"])
-        return evidence(state["action"])
+        result = evidence(state["action"])
+        result["tool"], result["arguments"] = tools.query_spec(state, state["action"])
+        return result
 
     async def choose(state, available, trace=None):
         reserve(state, "llm")
@@ -281,7 +283,8 @@ def test_tool_cache_survives_checkpoint_gap_and_rejects_changed_query(
 
 
 @pytest.mark.parametrize("custom_window", [False, True])
-def test_session_resume_across_processes(tmp_path, custom_window):
+@pytest.mark.parametrize("compare_previous", [False, True])
+def test_session_resume_across_processes(tmp_path, custom_window, compare_previous):
     # 두 별도 Python 프로세스에서 CLI와 SQLite 복구를 통합 검증한다.
     script = r"""
 import sys
@@ -304,12 +307,12 @@ async def tool(state, trace=None):
     save_json(root / f'{action}-query.json', arguments)
     with (root/'calls.txt').open('a') as f:
         f.write(action+'\n')
-    return dict(action=action, evidence_id=action, tool='query_prometheus' if action=='current_metrics' else 'query_loki_logs', arguments={}, measurement={}, status='data_available', summary={}, error_type=None)
+    return dict(action=action, evidence_id=action, tool=tool_name, arguments=arguments, measurement={}, status='data_available', summary={}, error_type=None)
 async def choose(state, available, trace=None):
     reserve(state, 'llm')
     from ops_agent.persistence.artifacts import save_json
     save_json(root / 'planner-context.json', build_context(state, available))
-    return dict(action='logs' if 'logs' in available else 'finish', rationale='test', assessment='insufficient_evidence', hypotheses=[], limitations=['test'], next_checks=['test'])
+    return dict(action='logs' if 'logs' in available else ('previous_metrics' if 'previous_metrics' in available else 'finish'), rationale='test', assessment='insufficient_evidence', hypotheses=[], limitations=['test'], next_checks=['test'])
 nodes.execute_tool=tool
 nodes.choose_action=choose
 sys.argv=['run_agent.py', *sys.argv[2:]]
@@ -342,6 +345,11 @@ raise SystemExit(run_agent.main())
         if custom_window
         else []
     )
+    if not compare_previous:
+        options.append("--no-compare-previous")
+    expected_actions = ["current_metrics", "logs"] + (
+        ["previous_metrics"] if compare_previous else []
+    )
     first = launch("--seconds", "600", "--step", *options)
     assert first.returncode == 0, first.stderr
     thread = next(
@@ -354,12 +362,11 @@ raise SystemExit(run_agent.main())
     assert (tmp_path / "calls.txt").read_text().splitlines() == ["current_metrics"]
     second = launch("--resume", thread)
     assert second.returncode == 0, second.stderr
-    assert (tmp_path / "calls.txt").read_text().splitlines() == [
-        "current_metrics",
-        "logs",
-    ]
+    assert (tmp_path / "calls.txt").read_text().splitlines() == expected_actions
     result = read_json(tmp_path / thread / "report.json")
-    assert result["budget"]["tool_calls"] == 2
+    assert result["budget"]["tool_calls"] == len(expected_actions)
+    assert result["request"]["compare_previous"] is compare_previous
+    assert result["required_checks"]["missing"] == []
     context = read_json(tmp_path / "planner-context.json")
     assert context["request"] == result["request"]
     assert context["window"] == result["window"]
@@ -379,10 +386,7 @@ raise SystemExit(run_agent.main())
         assert "2025-01-01T13:00:00+00:00" in status.stdout
     third = launch("--resume", thread)
     assert third.returncode == 0
-    assert (tmp_path / "calls.txt").read_text().splitlines() == [
-        "current_metrics",
-        "logs",
-    ]
+    assert (tmp_path / "calls.txt").read_text().splitlines() == expected_actions
 
 
 def test_custom_window_previous_metrics_uses_equal_duration(state):
@@ -414,6 +418,7 @@ def test_request_validation_precedes_session_directory_creation(tmp_path, monkey
 
 
 def test_session_trace_uses_saved_scope(state, tmp_path, monkeypatch):
+    state["version"] = 4
     calls = []
     mock_graph(monkeypatch, calls)
     monkeypatch.setattr(session, "CHECKPOINT_DB", tmp_path / "trace.sqlite")
@@ -441,10 +446,11 @@ def test_session_trace_uses_saved_scope(state, tmp_path, monkeypatch):
         assert metadata["metric_service_filter_applied"] is False
 
 
+@pytest.mark.parametrize("old_version", [2, 3])
 def test_old_checkpoint_rejected_before_tool_or_model_call(
-    state, tmp_path, monkeypatch
+    state, tmp_path, monkeypatch, old_version
 ):
-    state["version"] = 2
+    state["version"] = old_version
     database = tmp_path / "old.sqlite"
     monkeypatch.setattr(session, "CHECKPOINT_DB", database)
     calls = []

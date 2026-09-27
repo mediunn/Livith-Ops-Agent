@@ -1,6 +1,7 @@
 from ops_agent.agent.budget import BudgetExceeded, read_budget, remaining_seconds
 from ops_agent.agent.decision_validation import DecisionValidationError
 from ops_agent.agent.planner import ContextTooLarge, choose_action
+from ops_agent.agent.policy import allowed_actions, coverage
 from ops_agent.agent.state import READABLE_STATUSES, AgentState
 from ops_agent.reporting.agent_report import build_report
 from ops_agent.tools.grafana import CATALOG, execute_tool
@@ -25,7 +26,13 @@ class AgentNodes:
             name for name in CATALOG if name not in used and name != "current_metrics"
         ]
         if read_budget(state)["tool_calls"] >= state["limits"]["tool_calls"]:
+            if state.get("version", 3) >= 4 and coverage(state)["missing"]:
+                return {"stop_reason": "tool_budget"}
             available = []
+        if state.get("version", 3) >= 4:
+            available = [a for a in allowed_actions(state, available) if a != "finish"]
+            if coverage(state)["missing"] and not available:
+                return {"stop_reason": "required_checks_unavailable"}
         try:
             decision = await choose_action(state, available, trace=self.trace)
         except BudgetExceeded as exc:
@@ -42,6 +49,17 @@ class AgentNodes:
             }
         except Exception as exc:  # noqa: BLE001
             return {"stop_reason": "decision_error", "error_type": type(exc).__name__}
+        if (
+            state.get("version", 3) >= 4
+            and decision["action"] == "finish"
+            and coverage(state)["missing"]
+        ):
+            error = DecisionValidationError("required_checks_missing")
+            return {
+                "stop_reason": "decision_error",
+                "error_type": type(error).__name__,
+                "decision_error": error.details(),
+            }
         return {
             "decision_error": None,
             "action": decision["action"],

@@ -11,10 +11,11 @@ from ops_agent.agent.budget import remaining_seconds, reserve
 from ops_agent.agent.claims import CLAIM_POLICY_VERSION, verified_claims
 from ops_agent.agent.decision_validation import (
     DecisionValidationError,
-    allowed_evidence_ids,
     decision_schema,
     validate_decision,
 )
+from ops_agent.agent.legacy_validation import allowed_evidence_ids
+from ops_agent.agent.policy import POLICY_VERSION, allowed_actions, coverage
 from ops_agent.config import NUM_CTX, NUM_PREDICT
 from ops_agent.persistence.artifacts import save_json
 from ops_agent.tools.grafana import CATALOG
@@ -25,7 +26,15 @@ class ContextTooLarge(ValueError):
 
 
 def build_context(state: dict, available: list[str]) -> dict:
+    contract = {}
+    if state.get("version", 3) >= 4:
+        contract = {
+            "investigation_policy_version": POLICY_VERSION,
+            "required_checks": coverage(state),
+            "allowed_actions": allowed_actions(state, available),
+        }
     return {
+        **contract,
         "claim_policy_version": CLAIM_POLICY_VERSION,
         "verified_claims": verified_claims(state),
         "symptom": state["symptom"],
@@ -73,6 +82,8 @@ async def choose_action(state: dict, available: list[str], trace=None) -> dict:
         {"role": "system", "content": state["prompt"]},
         {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
     ]
+    if state.get("version", 3) >= 4 and not context["allowed_actions"]:
+        raise DecisionValidationError("no_available_action")
     decision_id = uuid4().hex
     repair_of = None
     for attempt in (1, 2):
@@ -95,10 +106,15 @@ async def choose_action(state: dict, available: list[str], trace=None) -> dict:
                     {
                         "validation_feedback": validation,
                         "verified_claims": context["verified_claims"],
-                        "allowed_actions": [*available, "finish"],
+                        "allowed_actions": context.get(
+                            "allowed_actions", [*available, "finish"]
+                        ),
+                        "missing_required_checks": context.get(
+                            "required_checks", {}
+                        ).get("missing", []),
                         "allowed_hypothesis_evidence_ids": allowed_evidence_ids(state),
                         "instruction": (
-                            "이전 응답의 검증 오류를 수정하여 완전한 Decision JSON을 반환하세요. "
+                            "검증 오류를 수정하여 제공된 스키마의 JSON을 반환하세요. "
                             "근거가 부족한 가설은 삭제하세요. 유효한 ID로 바꾸는 것만으로 "
                             "주장이 뒷받침되지는 않습니다. 새 관측 데이터는 추가되지 않았습니다."
                         ),
@@ -133,6 +149,7 @@ async def generate_decision(
     reserve(state, "llm")
     options = {"temperature": 0, "num_ctx": NUM_CTX, "num_predict": NUM_PREDICT}
     receipt = {
+        "investigation_policy_version": context.get("investigation_policy_version"),
         "claim_policy_version": CLAIM_POLICY_VERSION,
         "decision_id": decision_id,
         "attempt_id": uuid4().hex,
@@ -160,6 +177,9 @@ async def generate_decision(
         trace.start_generation(
             name="ollama-planner",
             metadata={
+                "investigation_policy_version": context.get(
+                    "investigation_policy_version"
+                ),
                 "claim_policy_version": CLAIM_POLICY_VERSION,
                 "decision_id": decision_id,
                 "attempt_id": receipt["attempt_id"],

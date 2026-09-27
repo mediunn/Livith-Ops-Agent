@@ -66,15 +66,16 @@ def test_full_eval_graph_runs_planner_and_keeps_expected_out_of_input(
 ):
     def select(action):
         context = json.loads(calls[-1]["messages"][1]["content"])
-        return decision(
-            action, claim_ids=[c["claim_id"] for c in context["verified_claims"]]
-        )
+        return {
+            "action": action,
+            "claim_ids": [c["claim_id"] for c in context["verified_claims"]],
+        }
 
     calls = fake_model(
         monkeypatch,
         state,
         [
-            decision("previous_metrics"),
+            {"action": "previous_metrics", "claim_ids": []},
             lambda: select("logs"),
             lambda: select("finish"),
         ],

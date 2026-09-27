@@ -14,6 +14,7 @@ def explicit_args(**updates):
             "environment": "unspecified",
             "investigation_type": "external_api",
             "timezone": "Asia/Seoul",
+            "compare_previous": True,
             "start": "2025-01-01T22:00:00",
             "end": "2025-01-01T23:00:00",
             "symptom": "호출량 변화 확인",
@@ -51,6 +52,7 @@ def test_defaults_are_recorded_and_window_is_thirty_minutes():
         "environment",
         "investigation_type",
         "symptom",
+        "compare_previous",
     }
 
 
@@ -110,6 +112,7 @@ def test_explicit_offsets_disambiguate_dst_overlap():
         ["--resume", "saved", "--start", "2025-01-01T22:00:00"],
         ["--resume", "saved", "--symptom", "변경"],
         ["--resume", "saved", "--model", "qwen2.5:3b"],
+        ["--resume", "saved", "--no-compare-previous"],
     ],
 )
 def test_cli_rejects_invalid_input_before_io(arguments, tmp_path, monkeypatch):

@@ -26,6 +26,12 @@ def main() -> int:
     parser.add_argument("--timezone", help="기본값: Asia/Seoul")
     parser.add_argument("--start", help="ISO 8601 조회 시작 시각")
     parser.add_argument("--end", help="ISO 8601 조회 종료 시각")
+    parser.add_argument(
+        "--compare-previous",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="직전 구간 비교를 필수로 수행. 기본 켬, --no-compare-previous로 끔",
+    )
     parser.add_argument("--symptom")
     parser.add_argument("--model", choices=MODELS)
     parser.add_argument(
@@ -43,6 +49,7 @@ def main() -> int:
         "start",
         "end",
         "symptom",
+        "compare_previous",
         "model",
         "seconds",
     )
