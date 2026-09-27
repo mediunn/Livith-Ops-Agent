@@ -1,7 +1,8 @@
-"""모델 출력의 형식·도구·근거 참조를 검사한다. 가설의 진실성은 별도다."""
+"""모델 출력의 형식·도구·관측 선택·근거 참조를 검사한다. 원인 검증은 별도다."""
 
 from pydantic import ValidationError
 
+from ops_agent.agent.claims import verified_claims
 from ops_agent.agent.state import Decision
 
 ERROR_MESSAGES = {
@@ -9,6 +10,8 @@ ERROR_MESSAGES = {
     "invalid_action": "허용되지 않거나 이미 사용한 도구를 선택했습니다.",
     "unknown_evidence": "제공되지 않은 근거 ID를 가설에 인용했습니다.",
     "unavailable_evidence": "data_available이 아닌 근거를 가설에 인용했습니다.",
+    "unknown_claim": "제공된 검증 관측 목록에 없는 claim_id를 선택했습니다.",
+    "unsupported_hypothesis": "선택한 검증 관측이 없거나 가설이 그 관측 밖의 근거를 인용했습니다. 가설을 삭제하세요.",
     "output_truncated": "모델 출력이 완료되기 전에 잘렸습니다.",
 }
 
@@ -43,6 +46,14 @@ def decision_schema(state: dict, available: list[str]) -> dict:
         )
     else:
         schema["properties"]["hypotheses"]["maxItems"] = 0
+    claims = verified_claims(state)
+    if claims:
+        schema["properties"]["claim_ids"]["items"]["enum"] = [
+            c["claim_id"] for c in claims
+        ]
+    else:
+        schema["properties"]["claim_ids"]["maxItems"] = 0
+        schema["properties"]["hypotheses"]["maxItems"] = 0
     return schema
 
 
@@ -61,4 +72,12 @@ def validate_decision(content: str, state: dict, available: list[str]) -> dict:
         raise DecisionValidationError("unknown_evidence")
     if cited - set(allowed_evidence_ids(state)):
         raise DecisionValidationError("unavailable_evidence")
+    claims = {c["claim_id"]: c for c in verified_claims(state)}
+    if set(decision.claim_ids) - claims.keys():
+        raise DecisionValidationError("unknown_claim")
+    supported = {
+        eid for cid in decision.claim_ids for eid in claims[cid]["evidence_ids"]
+    }
+    if decision.hypotheses and (not supported or cited - supported):
+        raise DecisionValidationError("unsupported_hypothesis")
     return decision.model_dump(mode="json")

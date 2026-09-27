@@ -39,7 +39,8 @@
       },
       "expected_validation_error": null,
       "semantic_expectation": "unsupported_hypothesis",
-      "review_reason": "직전 구간을 아직 조회하지 않아 비교를 뒷받침하지 못한다."
+      "review_reason": "직전 구간을 아직 조회하지 않아 비교를 뒷받침하지 못한다.",
+      "expected_claim_validation_error": "unsupported_hypothesis"
     },
     {
       "case_id": "zero_rate_failure_claim",
@@ -86,7 +87,8 @@
       },
       "expected_validation_error": null,
       "semantic_expectation": "unsupported_hypothesis",
-      "review_reason": "0 요청률만으로 호출 실패를 주장할 수 없다."
+      "review_reason": "0 요청률만으로 호출 실패를 주장할 수 없다.",
+      "expected_claim_validation_error": "unsupported_hypothesis"
     },
     {
       "case_id": "no_data_hypothesis_reference",
@@ -132,7 +134,8 @@
       },
       "expected_validation_error": "unavailable_evidence",
       "semantic_expectation": "unsupported_hypothesis",
-      "review_reason": "반환 로그 없음은 경고 존재 가설의 근거가 아니다."
+      "review_reason": "반환 로그 없음은 경고 존재 가설의 근거가 아니다.",
+      "expected_claim_validation_error": "unavailable_evidence"
     }
   ]
 }

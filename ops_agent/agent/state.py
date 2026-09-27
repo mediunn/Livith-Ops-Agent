@@ -31,6 +31,7 @@ class Decision(BaseModel):
         "insufficient_evidence",
         "needs_investigation",
     ]
+    claim_ids: list[Text] = Field(default_factory=list, max_length=3)
     hypotheses: list[Hypothesis] = Field(max_length=3)
     limitations: list[Text] = Field(min_length=1, max_length=5)
     next_checks: list[Text] = Field(min_length=1, max_length=5)

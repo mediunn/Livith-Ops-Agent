@@ -8,6 +8,7 @@ from uuid import uuid4
 from ollama import AsyncClient
 
 from ops_agent.agent.budget import remaining_seconds, reserve
+from ops_agent.agent.claims import CLAIM_POLICY_VERSION, verified_claims
 from ops_agent.agent.decision_validation import (
     DecisionValidationError,
     allowed_evidence_ids,
@@ -25,6 +26,8 @@ class ContextTooLarge(ValueError):
 
 def build_context(state: dict, available: list[str]) -> dict:
     return {
+        "claim_policy_version": CLAIM_POLICY_VERSION,
+        "verified_claims": verified_claims(state),
         "symptom": state["symptom"],
         "window": state["window"],
         "request": state["request"],
@@ -91,6 +94,7 @@ async def choose_action(state: dict, available: list[str], trace=None) -> dict:
                 "content": json.dumps(
                     {
                         "validation_feedback": validation,
+                        "verified_claims": context["verified_claims"],
                         "allowed_actions": [*available, "finish"],
                         "allowed_hypothesis_evidence_ids": allowed_evidence_ids(state),
                         "instruction": (
@@ -129,6 +133,7 @@ async def generate_decision(
     reserve(state, "llm")
     options = {"temperature": 0, "num_ctx": NUM_CTX, "num_predict": NUM_PREDICT}
     receipt = {
+        "claim_policy_version": CLAIM_POLICY_VERSION,
         "decision_id": decision_id,
         "attempt_id": uuid4().hex,
         "attempt": attempt,
@@ -155,6 +160,7 @@ async def generate_decision(
         trace.start_generation(
             name="ollama-planner",
             metadata={
+                "claim_policy_version": CLAIM_POLICY_VERSION,
                 "decision_id": decision_id,
                 "attempt_id": receipt["attempt_id"],
                 "attempt": attempt,

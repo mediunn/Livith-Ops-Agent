@@ -76,6 +76,10 @@ uv run python run_investigation.py
 uv run python evaluate_reports.py --prompt-versions ops_report_v3
 ```
 
+Agent는 반환 로그의 경고·오류 레벨과 동일 API의 구간 마지막 요청률 증가를 코드로
+검증하고, 해당 관측을 모델의 원인 가설과 분리합니다. 이 두 종류의 검증 관측이 없으면
+가설 생성을 제한합니다.
+
 모델의 가설은 검토가 필요한 분석 초안입니다. 관측값 검증과 모델 해석의 정확도는
 구분해서 평가합니다. [평가 방법과 결과](evals/README.md)에서 자세히 확인할 수 있습니다.
 

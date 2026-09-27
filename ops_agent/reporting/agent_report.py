@@ -3,6 +3,7 @@
 import time
 
 from ops_agent.agent.budget import read_budget
+from ops_agent.agent.claims import CLAIM_POLICY_VERSION, verified_claims
 from ops_agent.agent.state import READABLE_STATUSES
 
 
@@ -40,7 +41,13 @@ def build_report(state: dict) -> dict:
     if not model_finished:
         limitations.append(f"제한 또는 오류로 조사 종료: {state['stop_reason']}")
     return {
-        "report_version": "agent-report-v2",
+        "report_version": "agent-report-v3",
+        "claim_policy_version": CLAIM_POLICY_VERSION,
+        "verified_claims": [
+            c
+            for c in verified_claims(state)
+            if final_decision and c["claim_id"] in final_decision.get("claim_ids", [])
+        ],
         "thread_id": state["thread_id"],
         "request": state["request"],
         "symptom": state["symptom"],

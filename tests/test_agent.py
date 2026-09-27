@@ -31,19 +31,6 @@ from ops_agent.reporting.agent_report import build_report
 from ops_agent.tools import grafana as tools
 
 
-@pytest.fixture
-def state(tmp_path, monkeypatch):
-    monkeypatch.setattr(session, "AGENT_ROOT", tmp_path)
-    return session.initial_state(
-        SimpleNamespace(
-            model="qwen2.5:3b",
-            symptom="test",
-            seconds=600,
-        ),
-        "test-thread",
-    )
-
-
 def decision(action="finish", **updates):
     return {
         "action": action,
@@ -669,11 +656,7 @@ def test_saved_prompt_version_is_not_relabelled_on_resume(state, monkeypatch):
 def test_regression_cases_separate_reference_validity_from_semantic_review(case):
     state = {"evidence": case["evidence"]}
     content = json.dumps(case["decision"])
-    if code := case["expected_validation_error"]:
-        with pytest.raises(DecisionValidationError) as exc:
-            planner.validate_decision(content, state, case["available_tools"])
-        assert exc.value.code == code
-    else:
-        # 유효한 ID를 붙인 근거 없는 가설은 참조 검사만으로 검출되지 않는다.
-        assert planner.validate_decision(content, state, case["available_tools"])
+    with pytest.raises(DecisionValidationError) as exc:
+        planner.validate_decision(content, state, case["available_tools"])
+    assert exc.value.code == case["expected_claim_validation_error"]
     assert case["semantic_expectation"] == "unsupported_hypothesis"
