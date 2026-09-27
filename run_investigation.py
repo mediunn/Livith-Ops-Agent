@@ -8,12 +8,12 @@ from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
-from generate_report import PROJECT_DIR, PROMPT_VERSION, run_report
-from observability import ReportTrace
-from query_loki import DEFAULT_LOGQL
-from query_loki import collect_evidence as collect_logs
-from query_prometheus import PROMQL
-from query_prometheus import collect as collect_metrics
+from ops_agent.collectors.loki import DEFAULT_LOGQL
+from ops_agent.collectors.loki import collect_evidence as collect_logs
+from ops_agent.collectors.prometheus import PROMQL
+from ops_agent.collectors.prometheus import collect as collect_metrics
+from ops_agent.reporting.generator import PROJECT_DIR, PROMPT_VERSION, run_report
+from ops_agent.telemetry.langfuse import ReportTrace
 
 READABLE_STATUSES = {"data_available", "no_data", "invalid_data"}
 

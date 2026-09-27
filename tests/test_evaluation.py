@@ -3,7 +3,7 @@ import json
 import pytest
 
 from evaluate_reports import CASES_PATH, create_evidence, evaluate_record
-from generate_report import build_context, metric_semantics
+from ops_agent.reporting.generator import build_context, metric_semantics
 
 CASES = json.loads(CASES_PATH.read_text())["cases"]
 

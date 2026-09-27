@@ -5,9 +5,9 @@ import pytest
 from ollama import ChatResponse
 from pydantic import ValidationError
 
-import generate_report as reports
 from evaluate_reports import CASES_PATH, create_evidence, evaluate_record
-from fact_validation import (
+from ops_agent.reporting import generator as reports
+from ops_agent.reporting.validation import (
     Observations,
     expected_observations,
     validate_observations,

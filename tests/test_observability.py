@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-import observability as obs
+from ops_agent.telemetry import langfuse as obs
 
 
 def test_default_trace_certificate_bundle(monkeypatch):

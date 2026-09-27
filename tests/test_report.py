@@ -3,7 +3,7 @@ import json
 import pytest
 from ollama import ChatResponse
 
-import generate_report as report_module
+from ops_agent.reporting import generator as report_module
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ def evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(
         report_module,
         "PROMPT_PATH",
-        report_module.PROJECT_DIR / "prompts/ops_report_v2.txt",
+        report_module.PROJECT_DIR / "prompts/report/ops_report_v2.txt",
     )
     monkeypatch.setattr(report_module, "ARTIFACTS_DIR", tmp_path)
     prom = {

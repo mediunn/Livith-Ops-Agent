@@ -4,9 +4,9 @@ import json
 import pytest
 from mcp.types import CallToolResult, TextContent
 
-import query_loki
-from loki_parser import parse_loki_response
-from prometheus_parser import parse_prometheus_response
+from ops_agent.collectors import loki
+from ops_agent.collectors.loki_parser import parse_loki_response
+from ops_agent.collectors.prometheus_parser import parse_prometheus_response
 
 
 def response(payload):
@@ -115,13 +115,11 @@ def test_cli_keeps_window_raw_and_status(
             calls.append((name, arguments))
             return result
 
-    monkeypatch.setattr(query_loki, "PROJECT_DIR", tmp_path)
-    monkeypatch.setattr(query_loki, "create_grafana_server", lambda: None)
-    monkeypatch.setattr(query_loki, "Client", FakeClient)
+    monkeypatch.setattr(loki, "PROJECT_DIR", tmp_path)
+    monkeypatch.setattr(loki, "create_grafana_server", lambda: None)
+    monkeypatch.setattr(loki, "Client", FakeClient)
     code = asyncio.run(
-        query_loki.collect(
-            reference, logql=query_loki.DEFAULT_LOGQL, limit=100, discover=False
-        )
+        loki.collect(reference, logql=loki.DEFAULT_LOGQL, limit=100, discover=False)
     )
     saved = json.loads(next((tmp_path / "artifacts").glob("loki-*.json")).read_text())
     assert saved["status"] == expected
@@ -137,7 +135,7 @@ def test_invalid_reference_time_rejected(reference):
     data["arguments"]["startTime"] = "now-30m"
     reference.write_text(json.dumps(data))
     with pytest.raises(ValueError):
-        query_loki.read_reference(reference)
+        loki.read_reference(reference)
 
 
 def test_prometheus_zero_remains_data():

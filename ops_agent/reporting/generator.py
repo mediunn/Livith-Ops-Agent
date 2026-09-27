@@ -10,19 +10,19 @@ from uuid import uuid4
 from ollama import Client
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from fact_validation import (
+from ops_agent.config import PROJECT_DIR, REPORT_PROMPT_DIR
+from ops_agent.reporting.validation import (
     Observations,
     expected_observations,
     render_facts,
     validate_observations,
 )
-from observability import ReportTrace
+from ops_agent.telemetry.langfuse import ReportTrace
 
-PROJECT_DIR = Path(__file__).resolve().parent
 ARTIFACTS_DIR = PROJECT_DIR / "artifacts"
 PROMPT_VERSIONS = ("ops_report_v1", "ops_report_v2", "ops_report_v3")
 PROMPT_VERSION = "ops_report_v3"
-PROMPT_PATH = PROJECT_DIR / "prompts" / f"{PROMPT_VERSION}.txt"
+PROMPT_PATH = REPORT_PROMPT_DIR / f"{PROMPT_VERSION}.txt"
 KNOWN_RATE_QUERY = "sum by (api) (rate(external_api_request_total[5m]))"
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -122,7 +122,7 @@ def build_context(loki_path: Path | None, *, enriched: bool = True) -> dict:
     if loki_path is None:
         candidates = list(ARTIFACTS_DIR.glob("loki-[0-9]*.json"))
         if not candidates:
-            raise ValueError("먼저 query_loki.py를 실행하세요.")
+            raise ValueError("먼저 python -m ops_agent.collectors.loki를 실행하세요.")
         loki_path = max(candidates, key=lambda path: path.stat().st_mtime)
 
     loki_path = loki_path.resolve()
@@ -203,7 +203,7 @@ def run_report(
     """수집된 근거로 보고서를 생성한다. 저장 위치는 호출자가 결정한다."""
     version = prompt_version or PROMPT_VERSION
     prompt_path = (
-        PROJECT_DIR / "prompts" / f"{version}.txt" if prompt_version else PROMPT_PATH
+        REPORT_PROMPT_DIR / f"{version}.txt" if prompt_version else PROMPT_PATH
     )
     run_id = str(uuid4())
     record = {

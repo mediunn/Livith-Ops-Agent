@@ -7,8 +7,9 @@ from uuid import uuid4
 
 from mcp import Client
 
-from check_grafana_mcp import PROJECT_DIR, create_grafana_server
-from loki_parser import decode_payload, parse_loki_response
+from ops_agent.collectors.grafana import create_grafana_server
+from ops_agent.collectors.loki_parser import decode_payload, parse_loki_response
+from ops_agent.config import PROJECT_DIR
 
 DATASOURCE_UID = "grafanacloud-logs"
 DEFAULT_LOGQL = '{job="livith-server"}'
@@ -23,7 +24,7 @@ def read_reference(path: Path | None) -> tuple[Path, dict, dict]:
         candidates = list((PROJECT_DIR / "artifacts").glob("prometheus-*.json"))
         if not candidates:
             raise ValueError(
-                "먼저 query_prometheus.py를 실행하거나 --prometheus-evidence를 지정하세요."
+                "먼저 python -m ops_agent.collectors.prometheus를 실행하거나 --prometheus-evidence를 지정하세요."
             )
         path = max(candidates, key=lambda item: item.stat().st_mtime)
     path = path.resolve()

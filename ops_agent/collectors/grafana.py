@@ -2,13 +2,12 @@ import asyncio
 import json
 import os
 import shutil
-from pathlib import Path
 
 from dotenv import load_dotenv
 from mcp import Client, StdioServerParameters
 from mcp.types import TextContent
 
-PROJECT_DIR = Path(__file__).resolve().parent
+from ops_agent.config import PROJECT_DIR
 
 
 def required_env(name: str) -> str:

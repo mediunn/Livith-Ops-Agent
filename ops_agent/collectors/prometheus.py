@@ -6,8 +6,9 @@ from uuid import uuid4
 
 from mcp import Client
 
-from check_grafana_mcp import PROJECT_DIR, create_grafana_server
-from prometheus_parser import parse_prometheus_response
+from ops_agent.collectors.grafana import create_grafana_server
+from ops_agent.collectors.prometheus_parser import parse_prometheus_response
+from ops_agent.config import PROJECT_DIR
 
 DATASOURCE_UID = "grafanacloud-prom"
 

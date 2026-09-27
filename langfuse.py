@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from time import sleep
 
-from ops_agent.telemetry.langfuse import configured_client
+from observability import configured_client
 
 
 def confirm_receipt(client, trace_id: str, started_at: datetime) -> bool:

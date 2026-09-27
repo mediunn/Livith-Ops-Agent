@@ -8,10 +8,15 @@ from itertools import product
 from pathlib import Path
 from uuid import uuid4
 
-from generate_report import PROJECT_DIR, PROMPT_VERSION, PROMPT_VERSIONS, run_report
-from loki_parser import parse_loki_response
-from observability import record_evaluation
-from prometheus_parser import parse_prometheus_response
+from ops_agent.collectors.loki_parser import parse_loki_response
+from ops_agent.collectors.prometheus_parser import parse_prometheus_response
+from ops_agent.reporting.generator import (
+    PROJECT_DIR,
+    PROMPT_VERSION,
+    PROMPT_VERSIONS,
+    run_report,
+)
+from ops_agent.telemetry.langfuse import record_evaluation
 
 CASES_PATH = PROJECT_DIR / "evals" / "cases.json"
 START = "2026-01-01T00:00:00Z"
