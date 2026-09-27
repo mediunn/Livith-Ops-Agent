@@ -28,6 +28,8 @@ def build_report(state: dict) -> dict:
         "외부 API 요청률과 제한된 로그 요약만 조사했다.",
         "서비스 전체 정상·장애 판정 기준과 SLO는 제공되지 않았다.",
         "환경 라벨 필터를 적용하지 않았다.",
+        "외부 API 지표 쿼리에 서비스 라벨 필터를 적용하지 않았다.",
+        "증상 문장에서 조사 대상·시간·유형을 자동 추출하지 않았다.",
         "로그 본문은 모델에 제공하지 않았다.",
         "가설과 자유 서술의 사실성은 자동 검증하지 않았다.",
     ]
@@ -38,8 +40,9 @@ def build_report(state: dict) -> dict:
     if not model_finished:
         limitations.append(f"제한 또는 오류로 조사 종료: {state['stop_reason']}")
     return {
-        "report_version": "agent-report-v1",
+        "report_version": "agent-report-v2",
         "thread_id": state["thread_id"],
+        "request": state["request"],
         "symptom": state["symptom"],
         "window": state["window"],
         "status": "completed" if model_finished else "incomplete",

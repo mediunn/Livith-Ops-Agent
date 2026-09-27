@@ -22,11 +22,16 @@ def build_context(state: dict, available: list[str]) -> dict:
     return {
         "symptom": state["symptom"],
         "window": state["window"],
+        "request": state["request"],
         "scope": {
-            "service": "livith-server",
+            "service": state["request"]["service"],
+            "environment": state["request"]["environment"],
+            "investigation_type": state["request"]["investigation_type"],
             "environment_filter_applied": False,
+            "metric_service_filter_applied": False,
             "log_bodies_included": False,
             "service_health_criteria_provided": False,
+            "symptom_changes_query_scope": False,
         },
         "available_tools": {name: CATALOG[name] for name in available},
         "evidence": [

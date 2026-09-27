@@ -6,11 +6,11 @@ ARTIFACTS_DIR = PROJECT_DIR / "artifacts"
 AGENT_ROOT = ARTIFACTS_DIR / "agent"
 CHECKPOINT_DB = AGENT_ROOT / "checkpoints.sqlite"
 
-AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "ops_agent_v1.txt"
+AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "ops_agent_v2.txt"
 REPORT_PROMPT_DIR = PROJECT_DIR / "prompts" / "report"
 
-PROMPT_VERSION = "ops_agent_v1"
-STATE_VERSION = 2
+PROMPT_VERSION = "ops_agent_v2"
+STATE_VERSION = 3
 
 NUM_CTX = 16384
 NUM_PREDICT = 1024

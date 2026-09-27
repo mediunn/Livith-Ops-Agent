@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,10 +16,10 @@ from ops_agent.collectors.prometheus_parser import parse_prometheus_response
 from ops_agent.persistence.artifacts import cached_query, save_json
 
 CATALOG = {
-    "current_metrics": "현재 30분의 외부 API별 초당 요청률",
-    "previous_metrics": "현재 구간 직전 30분의 같은 요청률",
-    "logs": "현재 구간 서비스 로그 최대 100건의 요약",
-    "warning_logs": "warn/error 문자열에 매칭되는 로그 최대 100건. 실제 로그 레벨 필터가 아님",
+    "current_metrics": "요청한 조회 구간의 외부 API별 초당 요청률",
+    "previous_metrics": "요청 구간과 길이가 같은 직전 구간의 요청률",
+    "logs": "요청 구간의 서비스 로그 최대 100건 요약",
+    "warning_logs": "요청 구간의 warn/error 문자열 매칭 로그 최대 100건. 실제 로그 레벨 필터가 아님",
 }
 
 
@@ -31,7 +31,8 @@ def query_spec(state: dict, action: str) -> tuple[str, dict]:
     if start.utcoffset() is None or end.utcoffset() is None or start >= end:
         raise ValueError("시간대를 포함한 유효한 조회 구간이 필요합니다.")
     if action == "previous_metrics":
-        end, start = start, start - timedelta(minutes=30)
+        duration = end - start
+        end, start = start, start - duration
     if action in {"current_metrics", "previous_metrics"}:
         return "query_prometheus", {
             "datasourceUid": "grafanacloud-prom",

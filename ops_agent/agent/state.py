@@ -40,6 +40,7 @@ class AgentState(TypedDict):
     version: int
     thread_id: str
     model: str
+    request: dict
     symptom: str
     directory: str
     window: dict

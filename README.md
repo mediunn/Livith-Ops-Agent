@@ -39,8 +39,19 @@ uv sync
 uv run python run_agent.py --symptom "최근 외부 API 요청률과 관련 로그 확인"
 ```
 
-현재 조회 대상은 최근 30분의 외부 API 요청률과 `livith-server` 로그입니다.
-증상 입력은 모델의 조사 맥락으로 사용하며 조회 시간·대상을 자동으로 변경하지 않습니다.
+조회 대상은 외부 API 요청률과 `livith-server` 로그이며, 기본 조회 구간은 최근 30분입니다.
+시작·종료 시각을 함께 지정하면 최대 6시간의 과거 구간을 조회합니다.
+
+```bash
+uv run python run_agent.py --timezone Asia/Seoul \
+  --start "2026-09-26T22:00:00" --end "2026-09-26T23:00:00" \
+  --symptom "외부 API 호출량 변화 확인"
+```
+
+오프셋 없는 시각은 `--timezone`(기본 `Asia/Seoul`)으로 해석하고 UTC로 저장합니다.
+오프셋이 포함된 시각은 해당 오프셋을 우선합니다. 증상 문장에서 시간·대상을 자동 추출하지 않습니다.
+지원 값은 `--service livith-server`, `--investigation-type external_api`,
+`--environment unspecified`입니다. 환경 필터와 지표의 서비스 필터는 적용하지 않습니다.
 결과는 터미널에 JSON으로 표시하고 `artifacts/agent/<thread_id>/`에 저장합니다.
 
 조사를 단계별로 실행하려면 다음 명령을 사용합니다. `--seconds`는 실행 시간 예산입니다.
@@ -52,6 +63,8 @@ uv run python run_agent.py --resume THREAD_ID
 ```
 
 `THREAD_ID`에는 첫 실행에서 출력된 ID를 사용합니다. 중단 시간도 실행 예산에 포함됩니다.
+재개·상태 확인에는 저장된 요청을 사용하므로 새 조사 옵션을 함께 지정할 수 없습니다.
+상태 v2의 기존 조사는 재개할 수 없으며, 저장된 결과 파일은 유지됩니다.
 Agent CLI는 macOS/Linux를 지원합니다.
 
 ## 고정 수집과 평가
