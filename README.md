@@ -69,6 +69,39 @@ uv run python -m ops_agent.cli.run_agent --resume THREAD_ID
 새 조사는 상태 v4입니다. 상태 v2·v3의 기존 조사는 재개할 수 없으며, 저장된 결과 파일은 유지됩니다.
 Agent CLI는 macOS/Linux를 지원합니다.
 
+## HTTP 요청률·평균 지연 조회
+
+HTTP 도구를 직접 실행하려면 다음 명령을 사용합니다. 기본값은 최근 30분의 전체
+메서드·엔드포인트이며, 요청률과 평균 지연을 하나의 읽기 전용 MCP 세션에서 조회합니다.
+
+```bash
+uv run python -m ops_agent.cli.query_http
+
+# 특정 엔드포인트의 평균 지연 조회
+uv run python -m ops_agent.cli.query_http \
+  --metric http_mean_latency --method GET \
+  --route '/api/v7/recommendation//concerts' \
+  --start '2026-09-26T21:00:00' --end '2026-09-27T21:00:00' \
+  --timezone Asia/Seoul
+```
+
+`--metric`은 `all`(기본), `http_request_rate`, `http_mean_latency` 중 하나입니다.
+`--start`·`--end`는 함께 지정하며 최대 24시간을 지원합니다. 직전 구간 비교는 시작·종료를
+이전 구간으로 지정해 별도로 조회합니다. `--seconds`는 연결을 포함한 실행 예산으로 기본 90초입니다.
+HTTP 대상은 `ops_agent/config.py`의 `HTTP_DATASOURCE_UID`, `HTTP_JOB`에 있으며,
+현재 `grafanacloud-prom`, `livith-server-production`을 사용합니다.
+`route`는 실제 라벨에 정확히 매칭하며 `//`, `:id`를 바꾸지 않습니다.
+
+요청률은 **req/s**, 평균 지연은 최근 5분의 지연 합계 증가율을 관측 건수 증가율로 나눈
+**ms**입니다. 인스턴스별 합계를 먼저 더한 뒤 나누며 p95·p99는 계산하지 않습니다.
+요청이 없는 구간의 지연은 값이 빠질 수 있으며, 빈 결과를 0이나 정상으로 처리하지 않습니다.
+조회 평가 간격은 60초이고 `sample_count`는 요청 건수가 아닌 평가 시점 수입니다.
+
+원본·요약·조회 조건·단위·예산은 `artifacts/http/<run_id>/`에 저장됩니다. 공통 실행기는
+도구와 최종 인자의 해시로 캐시를 구분하며, 같은 조사에서 조건이 달라지면 별도 근거로 저장합니다.
+각 CLI 실행은 새 조사 디렉터리를 만듭니다. 이 명령은 HTTP 수집 도구 확인용으로 모델을 호출하지
+않으며, `run_agent`의 모델 선택과 보고서는 아직 기존 외부 API 조사 경로를 사용합니다.
+
 ## 고정 수집과 평가
 
 정해진 순서로 지표·로그를 수집하고 보고서를 생성하는 실행 방식도 제공합니다.

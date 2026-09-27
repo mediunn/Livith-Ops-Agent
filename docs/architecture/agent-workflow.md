@@ -92,6 +92,24 @@ IANA 시간대(기본 `Asia/Seoul`)로 해석합니다. DST로 모호하거나 �
 
 ## 실행 제어와 상태 저장
 
+### HTTP 도구 실행 경계
+
+`tools/http.py`의 `HTTPQuery`는 지표 종류·시간 구간·정확한 route·HTTP method를 검증합니다.
+`HTTP_TOOLS`는 요청률과 평균 지연의 설명·단위·PromQL 템플릿을 제공합니다. 임의 PromQL,
+데이터소스·job 변경은 조회 입력으로 받지 않습니다. 시간은 UTC로 정규화하고 구간은 최대
+24시간으로 제한합니다. 조회 직전에도 입력을 다시 검증합니다.
+
+외부 API 도구와 HTTP 도구는 `tools/grafana.py`의 `execute_query()`를 공유합니다.
+이 실행기는 예산 차감, 조회 조건별 캐시, 원본 응답 보존, 파서 호출과 오류 기록을 맡습니다.
+외부 API 호출만 이전 `{action}.json` 캐시를 읽는 호환 경로를 사용합니다.
+
+HTTP CLI는 `cli/query_http.py`이며 한 실행에서 하나의 MCP 세션을 공유합니다. 결과는
+`artifacts/http/<run_id>/requests.json`, `queries/<query_key>.json`, `budget.json`,
+`result.json`에 남습니다. 조회 실패·연결 실패는 종료 코드 1이며, 유효한 빈 결과는
+`no_data`로 보존합니다. 이 단계에는 모델 판단·LangGraph 재개·원인 가설 생성이 없습니다.
+
+### 기존 Agent 실행
+
 기본 실행 예산은 90초, 도구·모델 호출은 각각 최대 6회입니다. 모델 호출 전에는
 17,408 토큰을 예약하며 누적 예약 한도는 110,000입니다. 예약량과 실제 토큰 사용량은
 별도로 기록합니다. 도구 호출은 최대 20초, 모델 호출은 최대 45초이며 남은 전체 시간을 적용합니다.

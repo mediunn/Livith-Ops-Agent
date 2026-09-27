@@ -5,6 +5,9 @@ ARTIFACTS_DIR = PROJECT_DIR / "artifacts"
 
 AGENT_ROOT = ARTIFACTS_DIR / "agent"
 CHECKPOINT_DB = AGENT_ROOT / "checkpoints.sqlite"
+HTTP_ROOT = ARTIFACTS_DIR / "http"
+HTTP_DATASOURCE_UID = "grafanacloud-prom"
+HTTP_JOB = "livith-server-production"
 
 AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "ops_agent_v8.txt"
 REPORT_PROMPT_DIR = PROJECT_DIR / "prompts" / "report"

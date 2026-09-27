@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -90,6 +91,33 @@ def without_raw_response(record: dict) -> dict:
 async def execute_tool(state: dict, trace=None) -> dict:
     action = state["action"]
     tool, arguments = query_spec(state, action)
+    return await execute_query(
+        state,
+        action=action,
+        tool=tool,
+        arguments=arguments,
+        measurement=measurement_for(tool),
+        parse_response=parse_prometheus_response
+        if tool == "query_prometheus"
+        else lambda raw: parse_loki_response(raw, limit=100),
+        legacy_cache=True,
+        trace=trace,
+    )
+
+
+async def execute_query(
+    state: dict,
+    *,
+    action: str,
+    tool: str,
+    arguments: dict,
+    measurement: dict,
+    parse_response: Callable[[dict], dict],
+    legacy_cache: bool = False,
+    client=None,
+    trace=None,
+) -> dict:
+    """검증된 도구 빌더의 조회를 공통 예산·캐시·원본 보존 경로로 실행한다."""
     path = query_artifact_path(state["directory"], tool, arguments)
     cached = cached_query(
         path,
@@ -98,7 +126,7 @@ async def execute_tool(state: dict, trace=None) -> dict:
         arguments=arguments,
     )
 
-    if cached is None:
+    if cached is None and legacy_cache:
         # 기존 실행은 조건이 일치하는 완료 기록만 재사용한다.
         legacy_path = Path(state["directory"]) / f"{action}.json"
         if legacy_path.exists():
@@ -136,7 +164,7 @@ async def execute_tool(state: dict, trace=None) -> dict:
         "source": "grafana_mcp",
         "tool": tool,
         "arguments": arguments,
-        "measurement": measurement_for(tool),
+        "measurement": measurement,
         "status": "pending",
         "summary": None,
         "response": None,
@@ -147,18 +175,17 @@ async def execute_tool(state: dict, trace=None) -> dict:
     span = trace.start_step(action, arguments) if trace else None
     try:
         async with asyncio.timeout(min(20.0, remaining_seconds(state))):
-            async with Client(create_grafana_server()) as client:
+            if client is not None:
                 result = await client.call_tool(tool, arguments=arguments)
+            else:
+                async with Client(create_grafana_server()) as connection:
+                    result = await connection.call_tool(tool, arguments=arguments)
         raw = result.model_dump(mode="json", by_alias=True)
         record["response"] = raw
         if result.is_error:
             record.update(status="tool_error", error_type="MCPToolError")
         else:
-            summary = (
-                parse_prometheus_response(raw)
-                if tool == "query_prometheus"
-                else parse_loki_response(raw, limit=100)
-            )
+            summary = parse_response(raw)
             record.update(summary=summary, status=summary["status"])
     except BudgetExceeded:
         record.update(status="time_budget", error_type="BudgetExceeded")
