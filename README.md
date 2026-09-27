@@ -36,7 +36,7 @@ uv sync
 준비한 뒤 실행합니다. 실행 명령은 프로젝트 루트를 기준으로 합니다.
 
 ```bash
-uv run python run_agent.py --symptom "최근 외부 API 요청률과 관련 로그 확인"
+uv run python -m ops_agent.cli.run_agent --symptom "최근 외부 API 요청률과 관련 로그 확인"
 ```
 
 조회 대상은 외부 API 요청률과 `livith-server` 로그이며, 기본 조회 구간은 최근 30분입니다.
@@ -45,7 +45,7 @@ uv run python run_agent.py --symptom "최근 외부 API 요청률과 관련 로�
 `--no-compare-previous`를 사용합니다. 필수 조회가 남으면 완료 처리하지 않습니다.
 
 ```bash
-uv run python run_agent.py --timezone Asia/Seoul \
+uv run python -m ops_agent.cli.run_agent --timezone Asia/Seoul \
   --start "2026-09-26T22:00:00" --end "2026-09-26T23:00:00" \
   --symptom "외부 API 호출량 변화 확인"
 ```
@@ -59,9 +59,9 @@ uv run python run_agent.py --timezone Asia/Seoul \
 조사를 단계별로 실행하려면 다음 명령을 사용합니다. `--seconds`는 실행 시간 예산입니다.
 
 ```bash
-uv run python run_agent.py --seconds 600 --step
-uv run python run_agent.py --status THREAD_ID
-uv run python run_agent.py --resume THREAD_ID
+uv run python -m ops_agent.cli.run_agent --seconds 600 --step
+uv run python -m ops_agent.cli.run_agent --status THREAD_ID
+uv run python -m ops_agent.cli.run_agent --resume THREAD_ID
 ```
 
 `THREAD_ID`에는 첫 실행에서 출력된 ID를 사용합니다. 중단 시간도 실행 예산에 포함됩니다.
@@ -74,11 +74,11 @@ Agent CLI는 macOS/Linux를 지원합니다.
 정해진 순서로 지표·로그를 수집하고 보고서를 생성하는 실행 방식도 제공합니다.
 
 ```bash
-uv run python run_investigation.py
-uv run python evaluate_reports.py --prompt-versions ops_report_v3
+uv run python -m ops_agent.cli.run_investigation
+uv run python -m ops_agent.cli.evaluate_reports --prompt-versions ops_report_v3
 
 # 합성 관측과 실제 로컬 모델로 Agent 전체 루프 평가
-uv run python evaluate_agent.py
+uv run python -m ops_agent.cli.evaluate_agent
 ```
 
 Agent는 반환 로그의 경고·오류 레벨과 동일 API의 구간 마지막 요청률 증가를 코드로
@@ -95,12 +95,22 @@ Agent는 반환 로그의 경고·오류 레벨과 동일 API의 구간 마지�
 
 | 디렉터리 | 역할 |
 |---|---|
-| `ops_agent/agent` | 조사 상태, 도구 선택, 실행 흐름과 예산 |
+| `ops_agent/cli` | 조사 실행, 합성 평가와 Langfuse 연결 진단 CLI |
+| `ops_agent/agent` | 조사 상태, 실행 흐름, 관측 정책과 예산 |
+| `ops_agent/agent/decision` | 모델의 도구 선택, 응답 검증과 이전 버전 호환 |
 | `ops_agent/collectors`, `ops_agent/tools` | Grafana 연결, 응답 파싱과 조사 도구 |
 | `ops_agent/persistence` | 체크포인트와 근거 파일 저장 |
 | `ops_agent/reporting` | 보고서 구성과 관측값 검증 |
 | `ops_agent/telemetry` | Langfuse 실행 추적 |
-| `prompts`, `evals`, `tests` | 프롬프트, 평가 사례와 테스트 |
+| `ops_agent/evaluation` | Agent 전체 루프와 고정 보고서 평가 로직 |
+| `prompts/agent`, `prompts/report` | Agent와 보고서의 버전별 프롬프트 |
+| `evals/datasets`, `evals/results` | 합성 평가 데이터셋과 저장소에서 관리하는 검증 문서 |
+| `tests` | 운영 코드의 역할별 테스트와 공통 도우미 |
+
+조사 실행·평가·연결 진단 CLI는 `ops_agent/cli/`에 모여 있으며 프로젝트 루트에서
+`uv run python -m ops_agent.cli.<명령>`으로 실행합니다. 기존 `python <명령>.py` 대신
+모듈 실행 방식을 사용합니다. 평가 데이터와 검증 문서는 각각 `agent/`, `report/`로
+구분하며, 실행 중 생성되는 파일은 `artifacts/evaluations/`에 저장합니다.
 
 [조사 구조](docs/architecture/agent-workflow.md) · [Langfuse 설정](docs/setup/langfuse.md) · [문서 목록](docs/README.md)
 
@@ -112,3 +122,6 @@ uv run ruff check .
 ```
 
 테스트는 합성 응답을 사용하며 실제 Grafana·Ollama 호출과 Langfuse 전송 없이 실행합니다.
+`tests/agent`, `collectors`, `tools`, `persistence`, `reporting`, `telemetry`,
+`evaluation`, `integration`으로 검사 대상을 구분합니다. 공통 fixture는
+`tests/conftest.py`, 재사용하는 합성 응답과 모델 도우미는 `tests/helpers/`에 있습니다.

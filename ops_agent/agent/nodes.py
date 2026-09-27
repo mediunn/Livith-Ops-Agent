@@ -1,6 +1,6 @@
 from ops_agent.agent.budget import BudgetExceeded, read_budget, remaining_seconds
-from ops_agent.agent.decision_validation import DecisionValidationError
-from ops_agent.agent.planner import ContextTooLarge, choose_action
+from ops_agent.agent.decision.planner import ContextTooLarge, choose_action
+from ops_agent.agent.decision.validation import DecisionValidationError
 from ops_agent.agent.policy import allowed_actions, coverage, warning_log_followup
 from ops_agent.agent.state import READABLE_STATUSES, AgentState
 from ops_agent.reporting.agent_report import build_report

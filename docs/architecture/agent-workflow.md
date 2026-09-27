@@ -2,6 +2,10 @@
 
 [문서 목록](../README.md) · [프로젝트 사용법](../../README.md)
 
+코드에서 조사 그래프와 상태는 `ops_agent/agent/`, 모델의 도구 선택과 응답 검증은
+`ops_agent/agent/decision/`에 있습니다. 관측 주장과 조사 정책은 보고서에서도 공유하므로
+`agent/claims.py`, `agent/policy.py`에 두며, 합성 평가 로직은 `ops_agent/evaluation/`에서 관리합니다.
+
 OpsAgent는 Grafana의 읽기 전용 도구로 근거를 수집하고 로컬 모델로 조사 방향을 선택합니다.
 LangGraph는 실행 흐름을 관리하고, SQLite 체크포인트는 같은 조사를 중단·재개할 수 있게 합니다.
 
@@ -132,9 +136,9 @@ Agent 프롬프트는 `ops_agent_v8`, 조사 정책은 `investigation-policy-v2`
 
 ## 고정 보고서와의 관계
 
-`run_investigation.py`는 지표 → 로그 → 보고서의 고정 순서로 실행합니다.
+`ops_agent/cli/run_investigation.py`는 지표 → 로그 → 보고서의 고정 순서로 실행합니다.
 Agent와 수집·파싱·추적 코드를 공유하며, 보고서 형식과 생성 경로는 다릅니다.
 고정 보고서 v3는 모델이 반환한 관측값을 원본 요약과 대조합니다.
-`evaluate_reports.py`는 이 고정 보고서를 대상으로 평가합니다.
-`evaluate_agent.py`는 합성 수집기를 주입해 운영 planner·그래프·예산·SQLite·보고서를
+`ops_agent/cli/evaluate_reports.py`는 이 고정 보고서를 대상으로 평가합니다.
+`ops_agent/cli/evaluate_agent.py`는 합성 수집기를 주입해 운영 planner·그래프·예산·SQLite·보고서를
 실행합니다. 기본 CLI의 수집기는 그대로 실제 Grafana를 사용합니다.

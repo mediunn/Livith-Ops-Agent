@@ -28,8 +28,8 @@ US는 `https://us.cloud.langfuse.com`, Japan은 `https://jp.cloud.langfuse.com`�
 ## 연결 확인과 첫 실행
 
 ```bash
-uv run python check_langfuse.py
-uv run python evaluate_reports.py --case warning_present
+uv run python -m ops_agent.cli.check_langfuse
+uv run python -m ops_agent.cli.evaluate_reports --case warning_present
 ```
 
 첫 명령은 인증을 확인하고 작은 합성 trace를 보낸 뒤, 해당 trace를 서버 API에서
@@ -46,9 +46,9 @@ uv run python evaluate_reports.py --case warning_present
 uv run python -m ops_agent.reporting.generator
 ```
 
-새 근거 수집까지 한 번에 실행하려면 `uv run python run_investigation.py`를 사용합니다.
+새 근거 수집까지 한 번에 실행하려면 `uv run python -m ops_agent.cli.run_investigation` 명령을 사용합니다.
 이때 `ops-investigation` 아래에 Prometheus·Loki 수집과 보고서 생성이 연결됩니다.
-`uv run python run_agent.py`를 사용하면 실행·재개별 `ops-agent` trace에 조회 도구와
+`uv run python -m ops_agent.cli.run_agent`를 사용하면 실행·재개별 `ops-agent` trace에 조회 도구와
 `ollama-planner`가 연결됩니다. 조사 ID는 metadata에 기록됩니다.
 
 ## 기록 범위

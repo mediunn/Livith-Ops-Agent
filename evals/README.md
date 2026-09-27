@@ -2,26 +2,40 @@
 
 [문서 목록](../docs/README.md) · [프로젝트 사용법](../README.md)
 
-`evaluate_reports.py`는 고정 보고서의 출력과 관측값을 검증합니다.
-`evaluate_agent.py`는 합성 수집 결과를 사용해 실제 모델의 도구 선택부터 최종 보고서까지
+`ops_agent/cli/evaluate_reports.py`는 고정 보고서의 출력과 관측값을 검증합니다.
+`ops_agent/cli/evaluate_agent.py`는 합성 수집 결과를 사용해 실제 모델의 도구 선택부터 최종 보고서까지
 Agent 루프를 실행합니다. 두 평가기는 별도 데이터셋과 검사 기준을 사용합니다.
+
+평가 로직은 `ops_agent/evaluation/agent.py`와 `ops_agent/evaluation/reports.py`에 있으며,
+`ops_agent/cli/`의 두 평가 CLI에서 호출합니다. 프로젝트 루트에서
+`uv run python -m ops_agent.cli.evaluate_agent` 또는
+`uv run python -m ops_agent.cli.evaluate_reports`로 실행합니다.
+
+| 디렉터리 | 내용 |
+|---|---|
+| `datasets/agent/` | Agent 전체 루프와 이전 정책 회귀 데이터셋 |
+| `datasets/report/` | 고정 보고서 합성 데이터셋 |
+| `results/agent/` | Agent 정책·관측·조회 효율 검증 문서 |
+| `results/report/` | 보고서 버전 비교와 관측값 검증 문서 |
+
+실행 중 생성되는 근거와 평가 결과는 기존 `artifacts/` 아래에 저장합니다.
 
 ## Agent 전체 루프 평가
 
 ```bash
 # 외부 호출 없이 일곱 사례의 파싱된 관측만 생성
-uv run python evaluate_agent.py --dry-run
+uv run python -m ops_agent.cli.evaluate_agent --dry-run
 
 # 합성 관측 + 실제 로컬 모델 + LangGraph/SQLite/예산/보고서 실행
-uv run python evaluate_agent.py
+uv run python -m ops_agent.cli.evaluate_agent
 
 # 특정 사례 반복; 추적 전송은 명시적으로 활성화
-OPS_LANGFUSE_ENABLED=true uv run python evaluate_agent.py --case rate_increase --repeat 2
+OPS_LANGFUSE_ENABLED=true uv run python -m ops_agent.cli.evaluate_agent --case rate_increase --repeat 2
 ```
 
-`agent-cases.json`(agent-loop-v2)은 기존 요청률 0·증가·경고 레벨·경고 문자열만 있는 info 로그에
+`datasets/agent/agent-cases.json`(agent-loop-v2)은 기존 요청률 0·증가·경고 레벨·경고 문자열만 있는 info 로그에
 일반 조회 한도 밖의 경고, 완전성 정보 누락, 잘리지 않은 경고 로그를 더한 일곱 사례입니다.
-이전 네 사례의 원본은 `agent-cases-v1.json`에 보존합니다.
+이전 네 사례의 원본은 `datasets/agent/agent-cases-v1.json`에 보존합니다.
 실제 Grafana에는 접속하지 않습니다. 수집 결과는 기존 Prometheus/Loki 파서로 만들고,
 모델은 운영 코드의 planner를 그대로 사용합니다. 기대 결과는 모델 입력에서 제외합니다.
 모든 사례는 원인을 특정할 정보가 없으므로 최종 가설 목록이 비어 있는지를 검사합니다.
@@ -39,24 +53,24 @@ v4 Agent의 문장은 코드가 작성하므로 문장 끝 검사를 모델 문�
 실패도 보존하고 다음 사례를 계속 실행하며 하나라도 자동 검사를 실패하면 종료 코드 1입니다.
 Langfuse에는 합성 평가임을 명시하고 자동 조건 점수를 남깁니다.
 
-[이전 전체 루프 결과](agent-loop-validation.md)와
-[필수 조사·코드 설명 정책 검증 결과](agent-policy-validation.md),
-[추가 로그 조회 효율 검증 결과](agent-query-efficiency.md)를 별도로 기록합니다.
+[이전 전체 루프 결과](results/agent/agent-loop-validation.md)와
+[필수 조사·코드 설명 정책 검증 결과](results/agent/agent-policy-validation.md),
+[추가 로그 조회 효율 검증 결과](results/agent/agent-query-efficiency.md)를 별도로 기록합니다.
 
 ## 고정 보고서와 기존 회귀 검사
 
-`agent-reference-cases.json`은 Agent의 근거 참조 회귀 사례 3개입니다. 실제 실패 패턴을
+`datasets/agent/agent-reference-cases.json`은 Agent의 근거 참조 회귀 사례 3개입니다. 실제 실패 패턴을
 합성 데이터로 재구성했으며, 참조 검사 기대값과 의미적 검토 기준을 분리합니다.
 기존 참조 검사만으로는 미조회 구간 단정과 요청률 0의 장애 단정을 검출하지 못했습니다.
 `expected_validation_error`는 당시 기대값을 보존하며 `expected_claim_validation_error`는
 이전 v3 관측 정책을 적용한 기대값입니다. 이전 정책은 선택할 검증 관측이 없는 가설을 거부합니다.
 이 사례는 v3 회귀 검사로 보존합니다. 새 v4 모델은 action·claim_ids만 출력합니다.
 이를 모든 가설 내용의 정확성 검증으로 해석하지 않습니다. 이 파일은
-`tests/test_agent.py`의 회귀 검사에서 사용하며 고정 보고서 평가기의 데이터셋은 아닙니다.
-[기존 참조 검사 결과](agent-reference-validation.md)와
-[관측 주장 정책 검증 결과](agent-claim-validation.md)를 별도로 기록합니다.
+`tests/agent/decision/test_validation.py`의 회귀 검사에서 사용하며 고정 보고서 평가기의 데이터셋은 아닙니다.
+[기존 참조 검사 결과](results/agent/agent-reference-validation.md)와
+[관측 주장 정책 검증 결과](results/agent/agent-claim-validation.md)를 별도로 기록합니다.
 
-`cases.json`은 운영 데이터가 아닌 합성 사례 6개와 검토 기준입니다.
+`datasets/report/cases.json`은 운영 데이터가 아닌 합성 사례 6개와 검토 기준입니다.
 기존 네 사례는 요청률 0, 데이터 없음, 경고 로그, 로그 잘림을 다룹니다.
 v2에서 추가한 두 사례는 유효하지 않은 수치와 소수 요청률·오류 로그를 다룹니다.
 기존 사례의 기대 분류는 변경하지 않았습니다. 새 사례는 이번 변경 후 처음 실행하는
@@ -67,19 +81,19 @@ v2에서 추가한 두 사례는 유효하지 않은 수치와 소수 요청률�
 
 ```bash
 # 모델 호출 없이 합성 근거 생성
-uv run python evaluate_reports.py --dry-run
+uv run python -m ops_agent.cli.evaluate_reports --dry-run
 
 # 기본 3B 모델로 전체 사례 실행
-uv run python evaluate_reports.py
+uv run python -m ops_agent.cli.evaluate_reports
 
 # 같은 모델에서 v1과 v2 비교
-uv run python evaluate_reports.py --prompt-versions ops_report_v1 ops_report_v2
+uv run python -m ops_agent.cli.evaluate_reports --prompt-versions ops_report_v1 ops_report_v2
 
 # 설치된 두 모델을 같은 입력·프롬프트·생성 옵션으로 비교
-uv run python evaluate_reports.py --models qwen2.5:3b huihui_ai/qwen2.5-abliterate:14b-instruct
+uv run python -m ops_agent.cli.evaluate_reports --models qwen2.5:3b huihui_ai/qwen2.5-abliterate:14b-instruct
 
 # 한 사례만 다시 실행
-uv run python evaluate_reports.py --case warning_present --models qwen2.5:3b
+uv run python -m ops_agent.cli.evaluate_reports --case warning_present --models qwen2.5:3b
 ```
 
 결과는 `artifacts/evaluations/<실행 ID>/`에 저장합니다. 실제 근거와 별도
@@ -136,6 +150,6 @@ v2는 확인된 외부 API rate 쿼리에만 `requests_per_second`, 300초 계�
 가설·한계·다음 확인 사항 및 상태 분류는 계속 별도로 검토해야 합니다.
 
 ```bash
-uv run python evaluate_reports.py --prompt-versions ops_report_v3
-uv run python evaluate_reports.py --prompt-versions ops_report_v2 ops_report_v3 --case warning_present
+uv run python -m ops_agent.cli.evaluate_reports --prompt-versions ops_report_v3
+uv run python -m ops_agent.cli.evaluate_reports --prompt-versions ops_report_v2 ops_report_v3 --case warning_present
 ```
