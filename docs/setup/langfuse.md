@@ -3,7 +3,7 @@
 [문서 목록](../README.md) · [프로젝트 사용법](../../README.md)
 
 LLM 실행은 로컬 Ollama가 수행하고, Langfuse는 그 실행의 관측과 평가 기록을 보관합니다.
-아래 명령은 프로젝트 루트에서 실행합니다. 공통 추적 코드는 `ops_agent/telemetry/langfuse.py`에 있습니다.
+아래 명령은 프로젝트 루트에서 실행합니다.
 
 ## 프로젝트와 키 준비
 
@@ -89,8 +89,6 @@ Langfuse SDK의 `flush()` 자체는 전송 실패를 예외로 올리지 않을 
 trace URL도 서버에 기록되기 전에 만들어질 수 있습니다. URL 출력만으로 전송 성공을
 판정하지 않으며, 연결 점검은 서버 조회 결과까지 확인합니다.
 
-`.env.example`, 소스 코드, 이 안내 문서, 의존성 파일은 커밋합니다.
-실제 `.env`와 `artifacts/`는 기존 `.gitignore`에 의해 제외됩니다.
 
 [추적 SDK 문서](https://langfuse.com/docs/observability/sdk/instrumentation),
 [평가 점수 SDK 문서](https://langfuse.com/docs/evaluation/evaluation-methods/scores-via-sdk)
