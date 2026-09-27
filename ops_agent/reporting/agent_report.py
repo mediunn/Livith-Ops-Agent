@@ -4,7 +4,13 @@ import time
 
 from ops_agent.agent.budget import read_budget
 from ops_agent.agent.claims import CLAIM_POLICY_VERSION, verified_claims
-from ops_agent.agent.policy import POLICY_VERSION, RATIONALES, coverage, narrative
+from ops_agent.agent.policy import (
+    POLICY_VERSION,
+    RATIONALES,
+    coverage,
+    narrative,
+    warning_log_followup,
+)
 from ops_agent.agent.state import READABLE_STATUSES
 
 
@@ -102,6 +108,7 @@ def build_report(state: dict) -> dict:
             report_version="agent-report-v4",
             investigation_policy_version=POLICY_VERSION,
             required_checks=coverage(state),
+            warning_log_followup=warning_log_followup(state),
             assessment_source="observation_policy",
             model_assessment=None,
             verified_claims=verified_claims(state),

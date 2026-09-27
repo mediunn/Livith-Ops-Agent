@@ -102,7 +102,7 @@ def test_comparison_off_removes_previous_action_and_finish_requirement(current_s
     state["request"]["compare_previous"] = False
     observe(state, ["current_metrics", "logs"])
     schema = decision_schema(state, ["previous_metrics", "warning_logs"])
-    assert schema["properties"]["action"]["enum"] == ["warning_logs", "finish"]
+    assert schema["properties"]["action"]["enum"] == ["finish"]
     assert validate_decision(json.dumps(choice()), state, [])["action"] == "finish"
     with pytest.raises(DecisionValidationError) as exc:
         validate_decision(

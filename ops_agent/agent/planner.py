@@ -15,7 +15,12 @@ from ops_agent.agent.decision_validation import (
     validate_decision,
 )
 from ops_agent.agent.legacy_validation import allowed_evidence_ids
-from ops_agent.agent.policy import POLICY_VERSION, allowed_actions, coverage
+from ops_agent.agent.policy import (
+    POLICY_VERSION,
+    allowed_actions,
+    coverage,
+    warning_log_followup,
+)
 from ops_agent.config import NUM_CTX, NUM_PREDICT
 from ops_agent.persistence.artifacts import save_json
 from ops_agent.tools.grafana import CATALOG
@@ -31,6 +36,7 @@ def build_context(state: dict, available: list[str]) -> dict:
         contract = {
             "investigation_policy_version": POLICY_VERSION,
             "required_checks": coverage(state),
+            "warning_log_followup": warning_log_followup(state),
             "allowed_actions": allowed_actions(state, available),
         }
     return {

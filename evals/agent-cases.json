@@ -1,5 +1,5 @@
 {
-  "version": "agent-loop-v1",
+  "version": "agent-loop-v2",
   "synthetic": true,
   "cases": [
     {
@@ -10,37 +10,133 @@
       "log_levels": {},
       "warning_query_levels": {},
       "truncated": false,
-      "expected": {"claim_kinds": [], "empty_hypotheses": true}
+      "expected": {
+        "claim_kinds": [],
+        "empty_hypotheses": true,
+        "warning_query": false
+      }
     },
     {
       "id": "rate_increase",
       "symptom": "외부 API 요청률을 직전 구간과 비교하고 서비스 로그를 확인해줘.",
       "previous_rate": 0.5,
       "current_rate": 2,
-      "log_levels": {"info": 2},
+      "log_levels": {
+        "info": 2
+      },
       "warning_query_levels": {},
       "truncated": false,
-      "expected": {"claim_kinds": ["latest_request_rate_increased"], "empty_hypotheses": true}
+      "expected": {
+        "claim_kinds": [
+          "latest_request_rate_increased"
+        ],
+        "empty_hypotheses": true,
+        "warning_query": false
+      }
     },
     {
       "id": "warning_present",
       "symptom": "외부 API 요청률을 직전 구간과 비교하고 서비스 로그를 확인해줘.",
       "previous_rate": 1,
       "current_rate": 1,
-      "log_levels": {"warn": 2, "error": 1},
-      "warning_query_levels": {"warn": 2, "error": 1},
+      "log_levels": {
+        "warn": 2,
+        "error": 1
+      },
+      "warning_query_levels": {
+        "warn": 2,
+        "error": 1
+      },
       "truncated": true,
-      "expected": {"claim_kinds": ["warning_log_observed"], "empty_hypotheses": true}
+      "expected": {
+        "claim_kinds": [
+          "warning_log_observed"
+        ],
+        "empty_hypotheses": true,
+        "warning_query": true
+      }
     },
     {
       "id": "regex_info_only",
       "symptom": "외부 API 요청률을 직전 구간과 비교하고 서비스 로그를 확인해줘.",
       "previous_rate": 1,
       "current_rate": 1,
-      "log_levels": {"info": 2},
-      "warning_query_levels": {"info": 2},
+      "log_levels": {
+        "info": 2
+      },
+      "warning_query_levels": {
+        "info": 2
+      },
       "truncated": false,
-      "expected": {"claim_kinds": [], "empty_hypotheses": true}
+      "expected": {
+        "claim_kinds": [],
+        "empty_hypotheses": true,
+        "warning_query": false
+      }
+    },
+    {
+      "id": "truncated_info_hidden_warning",
+      "symptom": "외부 API 요청률을 직전 구간과 비교하고 서비스 로그를 확인해줘.",
+      "previous_rate": 1,
+      "current_rate": 1,
+      "log_levels": {
+        "info": 100
+      },
+      "warning_query_levels": {
+        "warn": 1,
+        "error": 1
+      },
+      "truncated": true,
+      "warning_truncated": false,
+      "expected": {
+        "claim_kinds": [
+          "warning_log_observed"
+        ],
+        "empty_hypotheses": true,
+        "warning_query": true
+      }
+    },
+    {
+      "id": "unknown_log_completeness",
+      "symptom": "외부 API 요청률을 직전 구간과 비교하고 서비스 로그를 확인해줘.",
+      "previous_rate": 1,
+      "current_rate": 1,
+      "log_levels": {
+        "info": 2
+      },
+      "warning_query_levels": {
+        "info": 2
+      },
+      "truncated": null,
+      "warning_truncated": false,
+      "expected": {
+        "claim_kinds": [],
+        "empty_hypotheses": true,
+        "warning_query": true
+      }
+    },
+    {
+      "id": "complete_warning_logs",
+      "symptom": "외부 API 요청률을 직전 구간과 비교하고 서비스 로그를 확인해줘.",
+      "previous_rate": 1,
+      "current_rate": 1,
+      "log_levels": {
+        "warn": 2,
+        "error": 1
+      },
+      "warning_query_levels": {
+        "warn": 2,
+        "error": 1
+      },
+      "truncated": false,
+      "warning_truncated": false,
+      "expected": {
+        "claim_kinds": [
+          "warning_log_observed"
+        ],
+        "empty_hypotheses": true,
+        "warning_query": false
+      }
     }
   ]
 }

@@ -1,7 +1,7 @@
 from ops_agent.agent.budget import BudgetExceeded, read_budget, remaining_seconds
 from ops_agent.agent.decision_validation import DecisionValidationError
 from ops_agent.agent.planner import ContextTooLarge, choose_action
-from ops_agent.agent.policy import allowed_actions, coverage
+from ops_agent.agent.policy import allowed_actions, coverage, warning_log_followup
 from ops_agent.agent.state import READABLE_STATUSES, AgentState
 from ops_agent.reporting.agent_report import build_report
 from ops_agent.tools.grafana import CATALOG, execute_tool
@@ -73,6 +73,12 @@ class AgentNodes:
             item["action"] for item in state["evidence"]
         }:
             return {"stop_reason": "duplicate_or_invalid_tool"}
+        if (
+            state.get("version", 3) >= 4
+            and action == "warning_logs"
+            and not warning_log_followup(state)["eligible"]
+        ):
+            return {"stop_reason": "optional_query_blocked"}
         try:
             evidence = await (self.tool_executor or execute_tool)(
                 state, trace=self.trace

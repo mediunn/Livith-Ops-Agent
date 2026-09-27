@@ -32,6 +32,21 @@ flowchart TD
 응답이어야 합니다. 데이터 없음도 조회 이행에는 포함하지만 건강 상태의 근거는 아닙니다.
 `warning_logs`는 필수 `logs` 조회를 대신하지 않습니다.
 
+필수 조회가 끝난 뒤 `warning_log_followup`으로 추가 문자열 조회의 적격 여부와 이유,
+근거 ID, 실제 조회 여부를 기록합니다. 동일한 서비스 로그 쿼리의 응답이 성공했고,
+건수가 100건 미만이며 서버 잘림·한도 도달·잘림 가능성 플래그가 모두 명시적으로 false이면
+부분집합인 `warning_logs`를 선택 목록에서 제외합니다. 반환 상태·건수·한도 메타데이터도
+일치해야 합니다. 100건 도달, 잘림, 완전성 정보 누락·불일치이면 추가 조회를 허용합니다.
+이 판단은 경고 레벨 유무나 요청률에 의존하지 않습니다. 일반 조회 밖의 경고가 있을 수
+있으므로 잘린 info 로그만 보고 추가 조회를 생략하지 않습니다.
+
+이유는 `required_checks_pending`, `base_result_complete`, `base_result_truncated`,
+`base_completeness_unknown` 중 하나입니다. 필수 조회 중에는 추가 조회를 허용하지 않습니다.
+생성 스키마·출력 검증뿐 아니라 실제 호출 직전에도 검사하며, 저장된 선택이 현재 정책에서
+차단되면 `optional_query_blocked`와 `incomplete`로 종료합니다. 이미 수행된 조회는 보존합니다.
+같은 시점의 고정 범위 내 중복을 줄이는 정책이며 이후 지연 수집·전체 서비스 정상 여부를
+확인하는 정책은 아닙니다. 추가 조회가 가능해도 필수 항목으로 강제하지는 않습니다.
+
 필수 항목이 남으면 생성 스키마에서 `finish`를 제외하고, 사후 검사에서도
 `required_checks_missing`으로 거부합니다. 그래프와 보고서에도 종료 검사를 둡니다.
 예산 부족·수집 실패는 `incomplete`로 끝나며 미완료 항목을 보고서에 남깁니다.
@@ -105,8 +120,8 @@ IANA 시간대(기본 `Asia/Seoul`)로 해석합니다. DST로 모호하거나 �
 근거 부족으로 표시합니다. `model_assessment`는 null, `hypotheses`는 빈 배열입니다.
 현재 입력은 집계 요약뿐이므로 원인 가설 생성은 지원하지 않습니다.
 
-Agent 프롬프트는 `ops_agent_v7`, 조사 정책은 `investigation-policy-v1`입니다. 저장된 v4
-프롬프트를 재개 시 사용하며 이전 프롬프트·결과 파일은 보존합니다. `semantic_review`는
+Agent 프롬프트는 `ops_agent_v8`, 조사 정책은 `investigation-policy-v2`입니다. 저장된 v4
+프롬프트를 재개 시 사용하지만 코드의 현재 조회 정책을 적용합니다. 이전 프롬프트·결과 파일은 보존합니다. `semantic_review`는
 계속 `pending`입니다. 코드 설명도 정책과 계측 범위에 대한 별도 검토가 필요합니다.
 
 `tools/grafana.py`는 Livith의 운영 데이터를 조회하고, `telemetry/langfuse.py`는 OpsAgent

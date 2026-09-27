@@ -69,7 +69,11 @@ def synthetic_observation(state: dict, case: dict, action: str) -> dict:
         raw = {
             "structuredContent": {
                 "data": entries,
-                "metadata": {"resultsTruncated": case["truncated"]},
+                "metadata": {
+                    "resultsTruncated": case.get("warning_truncated", case["truncated"])
+                    if action == "warning_logs"
+                    else case["truncated"]
+                },
             }
         }
         summary = parse_loki_response(raw, limit=100)
@@ -114,8 +118,11 @@ def evaluate_state(state: dict, expected: dict) -> dict:
     checks = {
         "completed": completed,
         "requested_comparison_and_logs": (
-            {"current_metrics", "previous_metrics"}.issubset(actions)
-            and bool({"logs", "warning_logs"} & set(actions))
+            {"current_metrics", "logs"}.issubset(actions)
+            and (
+                not state["request"]["compare_previous"]
+                or "previous_metrics" in actions
+            )
         ),
         "selected_expected_claims": completed
         and selected_kinds == set(expected["claim_kinds"]),
@@ -139,6 +146,15 @@ def evaluate_state(state: dict, expected: dict) -> dict:
             report.get("narrative_source") == "code_generated"
             and report.get("health_assessment") == "not_evaluated"
             and report.get("model_assessment") is None
+        )
+    if "warning_query" in expected:
+        checks["warning_query_selection"] = ("warning_logs" in actions) == expected[
+            "warning_query"
+        ]
+        checks["expected_tool_count"] = len(actions) == (
+            2
+            + int(state["request"]["compare_previous"])
+            + int(expected["warning_query"])
         )
     return {
         "checks": checks,

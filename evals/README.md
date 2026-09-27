@@ -9,7 +9,7 @@ Agent 루프를 실행합니다. 두 평가기는 별도 데이터셋과 검사 
 ## Agent 전체 루프 평가
 
 ```bash
-# 외부 호출 없이 네 사례의 파싱된 관측만 생성
+# 외부 호출 없이 일곱 사례의 파싱된 관측만 생성
 uv run python evaluate_agent.py --dry-run
 
 # 합성 관측 + 실제 로컬 모델 + LangGraph/SQLite/예산/보고서 실행
@@ -19,13 +19,16 @@ uv run python evaluate_agent.py
 OPS_LANGFUSE_ENABLED=true uv run python evaluate_agent.py --case rate_increase --repeat 2
 ```
 
-`agent-cases.json`은 요청률 0·증가·경고 레벨·경고 문자열만 있는 info 로그 네 사례입니다.
+`agent-cases.json`(agent-loop-v2)은 기존 요청률 0·증가·경고 레벨·경고 문자열만 있는 info 로그에
+일반 조회 한도 밖의 경고, 완전성 정보 누락, 잘리지 않은 경고 로그를 더한 일곱 사례입니다.
+이전 네 사례의 원본은 `agent-cases-v1.json`에 보존합니다.
 실제 Grafana에는 접속하지 않습니다. 수집 결과는 기존 Prometheus/Loki 파서로 만들고,
 모델은 운영 코드의 planner를 그대로 사용합니다. 기대 결과는 모델 입력에서 제외합니다.
 모든 사례는 원인을 특정할 정보가 없으므로 최종 가설 목록이 비어 있는지를 검사합니다.
 
 자동 검사는 완료 여부, 요청한 이전 구간 비교·로그 조회, 기대 관측 선택, 가설 정책,
-문장 끝 형식과 조회 중복을 확인합니다. 문법·의미 정확성이나 조회 효율 점수는 아닙니다.
+문장 끝 형식과 조회 중복을 확인합니다. v2 사례는 추가 경고 조회의 수행·생략과 예상 도구
+호출 수도 검사합니다. 이는 고정 사례의 조회 효율 검사이며 문법·의미 정확성 점수는 아닙니다.
 v4 Agent의 문장은 코드가 작성하므로 문장 끝 검사를 모델 문장 품질 점수로 해석하지 않습니다.
 필수 조회 완료와 코드 설명 출처도 별도 검사합니다. 이전 v3 모델은 `추가 정보를 얻.`처럼
 문장부호만 있는 불완전 문장도 형식 검사를 통과할 수 있었습니다.
@@ -37,7 +40,8 @@ v4 Agent의 문장은 코드가 작성하므로 문장 끝 검사를 모델 문�
 Langfuse에는 합성 평가임을 명시하고 자동 조건 점수를 남깁니다.
 
 [이전 전체 루프 결과](agent-loop-validation.md)와
-[필수 조사·코드 설명 정책 검증 결과](agent-policy-validation.md)를 별도로 기록합니다.
+[필수 조사·코드 설명 정책 검증 결과](agent-policy-validation.md),
+[추가 로그 조회 효율 검증 결과](agent-query-efficiency.md)를 별도로 기록합니다.
 
 ## 고정 보고서와 기존 회귀 검사
 

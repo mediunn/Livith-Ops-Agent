@@ -4,7 +4,7 @@ from ops_agent.agent.claims import verified_claims
 from ops_agent.agent.state import READABLE_STATUSES
 from ops_agent.tools.grafana import CATALOG, query_spec
 
-POLICY_VERSION = "investigation-policy-v1"
+POLICY_VERSION = "investigation-policy-v2"
 RATIONALES = {
     "previous_metrics": "같은 길이의 직전 구간을 조회해 외부 API 요청률 평가값을 비교한다.",
     "logs": "요청 구간의 서비스 로그를 최대 100건 조회해 반환 범위의 레벨을 확인한다.",
@@ -33,11 +33,67 @@ def coverage(state: dict) -> dict:
     }
 
 
+def warning_log_followup(state: dict) -> dict:
+    """Only suppress the subset query when matching base-result completeness is explicit."""
+    result = {
+        "eligible": False,
+        "reason": "required_checks_pending",
+        "basis_evidence_ids": [],
+        "queried": any(e["action"] == "warning_logs" for e in state["evidence"]),
+    }
+    if coverage(state)["missing"]:
+        return result
+    tool, arguments = query_spec(state, "logs")
+    base = next(
+        (
+            e
+            for e in reversed(state["evidence"])
+            if e["action"] == "logs"
+            and e["tool"] == tool
+            and e["arguments"] == arguments
+        ),
+        None,
+    )
+    result.update(eligible=True, reason="base_completeness_unknown")
+    if base is None:
+        return result
+    result["basis_evidence_ids"] = [base["evidence_id"]]
+    summary = base.get("summary") or {}
+    count = summary.get("log_count")
+    limit = summary.get("requested_limit")
+    if any(
+        summary.get(key) is True
+        for key in ("server_results_truncated", "limit_reached", "possibly_truncated")
+    ) or (type(count) is int and count >= arguments["limit"]):
+        result["reason"] = "base_result_truncated"
+    elif (
+        base["status"] in {"data_available", "no_data"}
+        and summary.get("status") == base["status"]
+        and summary.get("scope") == "returned_logs_only"
+        and type(count) is int
+        and 0 <= count < arguments["limit"]
+        and (base["status"] == "no_data") == (count == 0)
+        and type(limit) is int
+        and limit == arguments["limit"]
+        and all(
+            summary.get(key) is False
+            for key in (
+                "server_results_truncated",
+                "limit_reached",
+                "possibly_truncated",
+            )
+        )
+    ):
+        result.update(eligible=False, reason="base_result_complete")
+    return result
+
+
 def allowed_actions(state: dict, available: list[str]) -> list[str]:
     actions = [
         a
         for a in available
-        if a != "previous_metrics" or state["request"]["compare_previous"]
+        if (a != "previous_metrics" or state["request"]["compare_previous"])
+        and (a != "warning_logs" or warning_log_followup(state)["eligible"])
     ]
     return actions if coverage(state)["missing"] else [*actions, "finish"]
 
@@ -53,6 +109,11 @@ def narrative(state: dict) -> dict:
         "로그 본문은 모델에 제공하지 않았고 원인 가설을 생성하지 않았다.",
         "자연어 증상에서 필수 조사를 추출하지 않으며 명시된 요청 설정을 따른다.",
     ]
+    if warning_log_followup(state)["reason"] == "base_result_complete":
+        limitations.append(
+            "동일 범위의 서비스 로그가 한도 미만이며 잘리지 않았다고 보고되어 "
+            "경고 문자열 부분집합 조회를 추가하지 않는다. 이후 지연 수집된 로그는 포함하지 않는다."
+        )
     if checks["missing"]:
         limitations.append("필수 조회 미완료: " + ", ".join(checks["missing"]))
     else:
