@@ -1,7 +1,24 @@
+import hashlib
 import json
 import os
 from pathlib import Path
 from uuid import uuid4
+
+
+def query_key(tool: str, arguments: dict) -> str:
+    """도구와 정확한 조회 인자의 키 순서에 무관한 식별자. 근거 ID와는 별개다."""
+    payload = json.dumps(
+        {"tool": tool, "arguments": arguments},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def query_artifact_path(directory: str | Path, tool: str, arguments: dict) -> Path:
+    return Path(directory) / "queries" / f"{query_key(tool, arguments)}.json"
 
 
 def read_json(path: Path) -> dict:

@@ -7,6 +7,7 @@ from mcp.types import CallToolResult, TextContent
 from ops_agent.agent.budget import (
     read_budget,
 )
+from ops_agent.persistence.artifacts import query_artifact_path, read_json, save_json
 from ops_agent.tools import grafana as tools
 
 
@@ -19,7 +20,7 @@ def test_previous_window_adjacent_not_now(state):
         tools.query_spec(state, "arbitrary_query")
 
 
-def test_tool_cache_survives_checkpoint_gap_and_rejects_changed_query(
+def test_tool_cache_survives_checkpoint_gap_and_separates_changed_query(
     state, monkeypatch
 ):
     calls = []
@@ -50,9 +51,24 @@ def test_tool_cache_survives_checkpoint_gap_and_rejects_changed_query(
     assert "response" not in first
     assert calls == ["query_prometheus"]
     assert read_budget(state)["tool_calls"] == 1
-    state["window"]["end"] = "2099-01-01T00:00:00+00:00"
-    with pytest.raises(ValueError, match="조회 조건"):
-        asyncio.run(tools.execute_tool(state))
+    # 다른 조건의 이전 action 파일이 남아 있어도 새 조회를 막지 않는다.
+    save_json(
+        Path(state["directory"]) / "current_metrics.json",
+        read_json(Path(first["artifact"])),
+    )
+    state["window"] = {
+        "start": "2025-01-01T13:00:00+00:00",
+        "end": "2025-01-01T14:00:00+00:00",
+    }
+    third = asyncio.run(tools.execute_tool(state))
+    assert third["query_key"] != first["query_key"]
+    assert third["evidence_id"] != first["evidence_id"]
+    assert third["artifact"] != first["artifact"]
+    assert calls == ["query_prometheus", "query_prometheus"]
+    assert read_budget(state)["tool_calls"] == 2
+    assert len(list((Path(state["directory"]) / "queries").glob("*.json"))) == 2
+    assert asyncio.run(tools.execute_tool(state)) == third
+    assert len(calls) == 2
 
 
 def test_custom_window_previous_metrics_uses_equal_duration(state):
@@ -89,4 +105,72 @@ def test_cancelled_read_is_charged_but_not_cached(state, monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(tools.execute_tool(state))
     assert read_budget(state)["tool_calls"] == 1
-    assert not (Path(state["directory"]) / "current_metrics.json").exists()
+    tool, arguments = tools.query_spec(state, state["action"])
+    assert not query_artifact_path(state["directory"], tool, arguments).exists()
+
+
+@pytest.mark.parametrize("layout", ["legacy", "keyed"])
+def test_saved_cache_reused_without_io_or_budget(state, monkeypatch, layout):
+    state["action"] = "current_metrics"
+    tool, arguments = tools.query_spec(state, state["action"])
+    target = query_artifact_path(state["directory"], tool, arguments)
+    source = (
+        Path(state["directory"]) / "current_metrics.json"
+        if layout == "legacy"
+        else target
+    )
+    record = {
+        "thread_id": state["thread_id"],
+        "action": state["action"],
+        "evidence_id": "preserve-this-id",
+        "tool": tool,
+        "arguments": arguments,
+        "status": "no_data",
+        "completed_at": 1,
+        "response": {"raw": "local-only"},
+        "artifact": str(source),
+    }
+    save_json(source, record)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("캐시 재사용 중 외부 연결을 시작했습니다.")
+
+    monkeypatch.setattr(tools, "create_grafana_server", forbidden)
+    state["deadline"] = 0  # 이미 완료된 조회 복구에 새 예산은 필요하지 않다.
+    result = asyncio.run(tools.execute_tool(state))
+    assert result["evidence_id"] == "preserve-this-id"
+    assert "response" not in result
+    assert read_budget(state)["tool_calls"] == 0
+    assert read_json(target)["evidence_id"] == "preserve-this-id"
+    if layout == "legacy":
+        assert read_json(source) == record
+
+
+@pytest.mark.parametrize("mutation", ["thread", "arguments", "pending"])
+def test_keyed_cache_still_rejects_wrong_or_incomplete_record(
+    state, monkeypatch, mutation
+):
+    state["action"] = "current_metrics"
+    tool, arguments = tools.query_spec(state, state["action"])
+    record = {
+        "thread_id": state["thread_id"],
+        "tool": tool,
+        "arguments": dict(arguments),
+        "status": "no_data",
+        "completed_at": 1,
+    }
+    if mutation == "thread":
+        record["thread_id"] = "another-thread"
+    elif mutation == "arguments":
+        record["arguments"]["stepSeconds"] = 120
+    else:
+        record.update(status="pending", completed_at=None)
+    save_json(query_artifact_path(state["directory"], tool, arguments), record)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("잘못된 캐시로 외부 연결을 시작했습니다.")
+
+    monkeypatch.setattr(tools, "create_grafana_server", forbidden)
+    with pytest.raises(ValueError):
+        asyncio.run(tools.execute_tool(state))
+    assert read_budget(state)["tool_calls"] == 0

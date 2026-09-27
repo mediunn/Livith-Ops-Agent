@@ -13,7 +13,13 @@ from ops_agent.collectors.grafana import create_grafana_server
 from ops_agent.collectors.loki_parser import parse_loki_response
 from ops_agent.collectors.prometheus import PROMQL
 from ops_agent.collectors.prometheus_parser import parse_prometheus_response
-from ops_agent.persistence.artifacts import cached_query, save_json
+from ops_agent.persistence.artifacts import (
+    cached_query,
+    query_artifact_path,
+    query_key,
+    read_json,
+    save_json,
+)
 
 CATALOG = {
     "current_metrics": "요청한 조회 구간의 외부 API별 초당 요청률",
@@ -57,6 +63,14 @@ def query_spec(state: dict, action: str) -> tuple[str, dict]:
     }
 
 
+def query_already_collected(state: dict, action: str) -> bool:
+    tool, arguments = query_spec(state, action)
+    key = query_key(tool, arguments)
+    return any(
+        query_key(item["tool"], item["arguments"]) == key for item in state["evidence"]
+    )
+
+
 def measurement_for(tool: str) -> dict:
     if tool == "query_prometheus":
         return {
@@ -76,23 +90,49 @@ def without_raw_response(record: dict) -> dict:
 async def execute_tool(state: dict, trace=None) -> dict:
     action = state["action"]
     tool, arguments = query_spec(state, action)
-    path = Path(state["directory"]) / f"{action}.json"
+    path = query_artifact_path(state["directory"], tool, arguments)
     cached = cached_query(
         path,
         thread_id=state["thread_id"],
         tool=tool,
         arguments=arguments,
     )
+
+    if cached is None:
+        # 기존 실행은 조건이 일치하는 완료 기록만 재사용한다.
+        legacy_path = Path(state["directory"]) / f"{action}.json"
+        if legacy_path.exists():
+            legacy = read_json(legacy_path)
+            if legacy.get("tool") == tool and legacy.get("arguments") == arguments:
+                cached = cached_query(
+                    legacy_path,
+                    thread_id=state["thread_id"],
+                    tool=tool,
+                    arguments=arguments,
+                )
+
     if cached is not None:
         if cached.get("status") == "pending" or not cached.get("completed_at"):
             raise ValueError("완료되지 않은 근거 파일입니다.")
-        return without_raw_response(cached)
+
+        if not path.exists():
+            cached = {
+                **cached,
+                "query_key": query_key(tool, arguments),
+                "artifact": str(path),
+            }
+            save_json(path, cached)
+
+        return {**without_raw_response(cached), "action": action}
+
     remaining_seconds(state)
     reserve(state, "tool")
+
     record = {
         "thread_id": state["thread_id"],
         "action": action,
         "evidence_id": str(uuid4()),
+        "query_key": query_key(tool, arguments),
         "source": "grafana_mcp",
         "tool": tool,
         "arguments": arguments,

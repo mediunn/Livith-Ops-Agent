@@ -164,7 +164,9 @@ async def run(args) -> int:
                 save_json(Path(state["directory"]) / "report.json", state["report"])
             display(state, snapshot.next)
             if paused:
-                print(f"\n재개: uv run python -m ops_agent.cli.run_agent --resume {thread_id}")
+                print(
+                    f"\n재개: uv run python -m ops_agent.cli.run_agent --resume {thread_id}"
+                )
             return 0 if paused else result_code(state)
         except BaseException as exc:
             record.update(

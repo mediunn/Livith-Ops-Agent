@@ -4,7 +4,7 @@ from ops_agent.agent.decision.validation import DecisionValidationError
 from ops_agent.agent.policy import allowed_actions, coverage, warning_log_followup
 from ops_agent.agent.state import READABLE_STATUSES, AgentState
 from ops_agent.reporting.agent_report import build_report
-from ops_agent.tools.grafana import CATALOG, execute_tool
+from ops_agent.tools.grafana import CATALOG, execute_tool, query_already_collected
 
 
 class AgentNodes:
@@ -19,11 +19,12 @@ class AgentNodes:
             return {"stop_reason": str(exc)}
         if any(item["status"] not in READABLE_STATUSES for item in state["evidence"]):
             return {"stop_reason": "collection_error"}
-        if not state["evidence"]:
+        if not query_already_collected(state, "current_metrics"):
             return {"action": "current_metrics"}
-        used = {item["action"] for item in state["evidence"]}
         available = [
-            name for name in CATALOG if name not in used and name != "current_metrics"
+            name
+            for name in CATALOG
+            if name != "current_metrics" and not query_already_collected(state, name)
         ]
         if read_budget(state)["tool_calls"] >= state["limits"]["tool_calls"]:
             if state.get("version", 3) >= 4 and coverage(state)["missing"]:
@@ -69,9 +70,7 @@ class AgentNodes:
 
     async def query(self, state: AgentState) -> dict:
         action = state["action"]
-        if action not in CATALOG or action in {
-            item["action"] for item in state["evidence"]
-        }:
+        if action not in CATALOG:
             return {"stop_reason": "duplicate_or_invalid_tool"}
         if (
             state.get("version", 3) >= 4
@@ -80,6 +79,8 @@ class AgentNodes:
         ):
             return {"stop_reason": "optional_query_blocked"}
         try:
+            if query_already_collected(state, action):
+                return {"stop_reason": "duplicate_or_invalid_tool"}
             evidence = await (self.tool_executor or execute_tool)(
                 state, trace=self.trace
             )

@@ -15,6 +15,7 @@ from ops_agent.agent.decision import planner
 from ops_agent.config import NUM_CTX, TOKEN_RESERVATION
 from ops_agent.persistence.artifacts import read_json
 from ops_agent.reporting.agent_report import build_report
+from ops_agent.tools.grafana import query_spec
 from tests.helpers.agent import (
     bad_reference,
     decision,
@@ -102,6 +103,8 @@ def test_one_repair_preserves_both_responses_and_charges_budget(state, monkeypat
 
 def test_failed_repair_terminates_with_diagnostic_in_report(state, monkeypatch):
     state["evidence"] = [evidence(), evidence("logs", "no_data")]
+    for item in state["evidence"]:
+        item["tool"], item["arguments"] = query_spec(state, item["action"])
     calls = fake_model(monkeypatch, state, [bad_reference(), bad_reference()])
     update = asyncio.run(nodes.AgentNodes().decide(state))
     assert len(calls) == 2
