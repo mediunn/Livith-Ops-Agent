@@ -2,8 +2,41 @@
 
 [문서 목록](../docs/README.md) · [프로젝트 사용법](../README.md)
 
-이 평가기는 고정 보고서의 출력과 관측값을 검증합니다. Agent의 도구 선택·종료 판단은
-평가 대상에 포함하지 않습니다.
+`evaluate_reports.py`는 고정 보고서의 출력과 관측값을 검증합니다.
+`evaluate_agent.py`는 합성 수집 결과를 사용해 실제 모델의 도구 선택부터 최종 보고서까지
+Agent 루프를 실행합니다. 두 평가기는 별도 데이터셋과 검사 기준을 사용합니다.
+
+## Agent 전체 루프 평가
+
+```bash
+# 외부 호출 없이 네 사례의 파싱된 관측만 생성
+uv run python evaluate_agent.py --dry-run
+
+# 합성 관측 + 실제 로컬 모델 + LangGraph/SQLite/예산/보고서 실행
+uv run python evaluate_agent.py
+
+# 특정 사례 반복; 추적 전송은 명시적으로 활성화
+OPS_LANGFUSE_ENABLED=true uv run python evaluate_agent.py --case rate_increase --repeat 2
+```
+
+`agent-cases.json`은 요청률 0·증가·경고 레벨·경고 문자열만 있는 info 로그 네 사례입니다.
+실제 Grafana에는 접속하지 않습니다. 수집 결과는 기존 Prometheus/Loki 파서로 만들고,
+모델은 운영 코드의 planner를 그대로 사용합니다. 기대 결과는 모델 입력에서 제외합니다.
+모든 사례는 원인을 특정할 정보가 없으므로 최종 가설 목록이 비어 있는지를 검사합니다.
+
+자동 검사는 완료 여부, 요청한 이전 구간 비교·로그 조회, 기대 관측 선택, 가설 정책,
+문장 끝 형식과 조회 중복을 확인합니다. 문법·의미 정확성이나 조회 효율 점수는 아닙니다.
+예를 들어 `추가 정보를 얻.`처럼 마침표만 있는 불완전 문장은 형식 검사를 통과할 수 있습니다.
+`semantic_review`는 별도 검토 전까지 `pending`입니다.
+
+결과 목록·토큰·시간은 `artifacts/evaluations/agent-<ID>/summary.json`, 각 실행의
+관측·모델 원문·SQLite·보고서는 `artifacts/agent/eval-<ID>/`에 저장합니다.
+실패도 보존하고 다음 사례를 계속 실행하며 하나라도 자동 검사를 실패하면 종료 코드 1입니다.
+Langfuse에는 합성 평가임을 명시하고 자동 조건 점수를 남깁니다.
+
+[전체 루프의 실제 실행 결과와 남은 한계](agent-loop-validation.md)를 별도로 기록합니다.
+
+## 고정 보고서와 기존 회귀 검사
 
 `agent-reference-cases.json`은 Agent의 근거 참조 회귀 사례 3개입니다. 실제 실패 패턴을
 합성 데이터로 재구성했으며, 참조 검사 기대값과 의미적 검토 기준을 분리합니다.

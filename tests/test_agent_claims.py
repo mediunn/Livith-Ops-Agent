@@ -178,6 +178,8 @@ def test_claim_selection_schema_and_reference_validation(state):
     metrics(state)
     (claim,) = verified_claims(state)
     schema = decision_schema(state, [])
+    assert "claim_ids" in schema["required"]
+    assert schema["properties"]["claim_ids"]["minItems"] == 1
     assert schema["properties"]["claim_ids"]["items"]["enum"] == [claim["claim_id"]]
     selected = decision(
         claim_ids=[claim["claim_id"]],
@@ -196,7 +198,7 @@ def test_claim_selection_schema_and_reference_validation(state):
     selected["claim_ids"] = []
     with pytest.raises(DecisionValidationError) as exc:
         validate_decision(json.dumps(selected), state, [])
-    assert exc.value.code == "unsupported_hypothesis"
+    assert exc.value.code == "missing_claim_selection"
 
 
 def test_selected_claim_cannot_justify_unrelated_evidence(state):

@@ -74,6 +74,9 @@ Agent CLI는 macOS/Linux를 지원합니다.
 ```bash
 uv run python run_investigation.py
 uv run python evaluate_reports.py --prompt-versions ops_report_v3
+
+# 합성 관측과 실제 로컬 모델로 Agent 전체 루프 평가
+uv run python evaluate_agent.py
 ```
 
 Agent는 반환 로그의 경고·오류 레벨과 동일 API의 구간 마지막 요청률 증가를 코드로

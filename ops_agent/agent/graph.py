@@ -12,8 +12,8 @@ def after_query(state: AgentState) -> str:
     return "report" if state["stop_reason"] else "decide"
 
 
-def build_graph(checkpointer, trace=None):
-    nodes = AgentNodes(trace)
+def build_graph(checkpointer, trace=None, *, tool_executor=None):
+    nodes = AgentNodes(trace, tool_executor=tool_executor)
     builder = StateGraph(AgentState)
     builder.add_node("decide", nodes.decide)
     builder.add_node("query", nodes.query)

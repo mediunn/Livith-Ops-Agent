@@ -7,8 +7,9 @@ from ops_agent.tools.grafana import CATALOG, execute_tool
 
 
 class AgentNodes:
-    def __init__(self, trace=None):
+    def __init__(self, trace=None, *, tool_executor=None):
         self.trace = trace
+        self.tool_executor = tool_executor
 
     async def decide(self, state: AgentState) -> dict:
         try:
@@ -55,7 +56,9 @@ class AgentNodes:
         }:
             return {"stop_reason": "duplicate_or_invalid_tool"}
         try:
-            evidence = await execute_tool(state, trace=self.trace)
+            evidence = await (self.tool_executor or execute_tool)(
+                state, trace=self.trace
+            )
         except BudgetExceeded as exc:
             return {"stop_reason": str(exc)}
         except Exception as exc:  # noqa: BLE001

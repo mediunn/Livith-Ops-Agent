@@ -34,7 +34,7 @@ from ops_agent.tools import grafana as tools
 def decision(action="finish", **updates):
     return {
         "action": action,
-        "rationale": "관측 근거 추가 확인",
+        "rationale": "관측 근거를 추가 확인한다.",
         "assessment": "insufficient_evidence",
         "hypotheses": [],
         "limitations": ["서비스 정상 기준 없음"],
