@@ -47,6 +47,7 @@ def build_report(state: dict) -> dict:
         "window": state["window"],
         "status": "completed" if model_finished else "incomplete",
         "stop_reason": state["stop_reason"],
+        "decision_error": state.get("decision_error"),
         "assessment": assessment,
         "model_assessment": final_decision["assessment"] if final_decision else None,
         "facts_source": "parsed_observations",

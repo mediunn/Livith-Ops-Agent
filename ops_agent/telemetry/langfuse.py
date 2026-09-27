@@ -117,7 +117,7 @@ class ReportTrace:
             )
             return None
 
-    def start_generation(self, name="ollama-report"):
+    def start_generation(self, name="ollama-report", metadata: dict | None = None):
         if self.root is None:
             return
         self.safe(
@@ -139,10 +139,13 @@ class ReportTrace:
                 input=self.record["messages"],
                 model_parameters=self.record["options"],
                 version=self.record["prompt_version"],
+                metadata=metadata or {},
             ),
         )
 
-    def end_generation(self, error_type: str | None = None):
+    def end_generation(
+        self, error_type: str | None = None, *, validation: dict | None = None
+    ):
         if self.generation is None:
             return
         response = self.record.get("response") or {}
@@ -155,13 +158,18 @@ class ReportTrace:
             )
             if isinstance(value, int) and not isinstance(value, bool)
         }
+        diagnostic = {"metadata": {"validation": validation}} if validation else {}
+        status_message = (
+            validation["code"] if validation and not validation["valid"] else error_type
+        )
         self.safe(
             "generation_output",
             lambda: self.generation.update(
                 output=(response.get("message") or {}).get("content"),
                 usage_details=details,
                 level="ERROR" if error_type else "DEFAULT",
-                status_message=error_type,
+                status_message=status_message,
+                **diagnostic,
             ),
         )
         self.safe("end_generation", self.generation.end)

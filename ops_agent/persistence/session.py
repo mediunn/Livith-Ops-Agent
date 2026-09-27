@@ -43,12 +43,14 @@ def initial_state(args, thread_id: str) -> dict:
         "deadline": time.time() + args.seconds,
         "limits": {"tool_calls": 6, "llm_calls": 6, "reserved_tokens": 110000},
         "prompt": prompt,
+        "prompt_version": PROMPT_VERSION,
         "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
         "action": "",
         "evidence": [],
         "decisions": [],
         "stop_reason": "",
         "error_type": None,
+        "decision_error": None,
         "report": None,
     }
 
@@ -111,7 +113,7 @@ async def run(args) -> int:
         record = {
             "run_id": invocation_id,
             "model": state["model"],
-            "prompt_version": PROMPT_VERSION,
+            "prompt_version": state.get("prompt_version", "ops_agent_v2"),
             "context_version": f"agent-state-v{STATE_VERSION}",
             "request": state["request"],
             "prompt_sha256": state["prompt_sha256"],
@@ -153,6 +155,7 @@ async def run(args) -> int:
             record["validation"] = {
                 "semantic_review": "pending",
                 "stop_reason": state["stop_reason"],
+                "decision_error": state.get("decision_error"),
             }
             if state.get("error_type"):
                 record["error"] = {"type": state["error_type"]}

@@ -1,4 +1,5 @@
 from ops_agent.agent.budget import BudgetExceeded, read_budget, remaining_seconds
+from ops_agent.agent.decision_validation import DecisionValidationError
 from ops_agent.agent.planner import ContextTooLarge, choose_action
 from ops_agent.agent.state import READABLE_STATUSES, AgentState
 from ops_agent.reporting.agent_report import build_report
@@ -32,9 +33,16 @@ class AgentNodes:
             return {"stop_reason": "context_limit"}
         except TimeoutError:
             return {"stop_reason": "model_timeout", "error_type": "TimeoutError"}
+        except DecisionValidationError as exc:
+            return {
+                "stop_reason": "decision_error",
+                "error_type": type(exc).__name__,
+                "decision_error": exc.details(),
+            }
         except Exception as exc:  # noqa: BLE001
             return {"stop_reason": "decision_error", "error_type": type(exc).__name__}
         return {
+            "decision_error": None,
             "action": decision["action"],
             "decisions": [*state["decisions"], decision],
             "stop_reason": "model_finished" if decision["action"] == "finish" else "",

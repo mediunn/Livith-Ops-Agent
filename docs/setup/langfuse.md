@@ -55,6 +55,7 @@ uv run python -m ops_agent.reporting.generator
 
 - 프롬프트 원문, 버전·해시, 근거의 조회 조건과 요약, LLM 원문 응답과 최종 보고서
 - 모델 이름, 생성 옵션, 입력·출력 토큰 수, 실행 시간과 실패 종류
+- Agent 판단 ID·시도 번호·수정 대상 ID·형식/도구/근거 참조 검증 결과
 - 평가 실행 ID, 사례 ID, 데이터셋 버전, 합성 데이터 여부
 - `auto_schema_and_references`, `auto_assessment`, `auto_hypotheses_policy` 점수
 - v3 평가의 `auto_observation_values`: 구조화된 관측값이 원본 요약과 일치하는지 검사
@@ -76,6 +77,9 @@ Ollama 호출 자체의 시간은 generation에, 보고서 처리 과정은 상�
 로컬 결과의 `telemetry.status`는 `disabled`, `recording`, `error`,
 `flush_attempted` 중 하나입니다. `flush_attempted`는 SDK 전송을 시도했다는 뜻이며
 서버 수신 완료를 보장하지 않습니다. 실제 수신 여부는 trace 화면에서 확인합니다.
+Agent의 잘못된 판단 응답에는 `schema_error`, `invalid_action`, `unknown_evidence`,
+`unavailable_evidence`, `output_truncated` 같은 코드가 generation의 검증 metadata와
+오류 메시지에 기록됩니다. 수정 응답은 별도 generation으로 연결합니다.
 점수 전송 상태는 `telemetry.scores_status`로 별도 기록합니다.
 
 인증은 성공하지만 trace 전송에서 `CERTIFICATE_VERIFY_FAILED`가 발생한다면

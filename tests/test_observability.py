@@ -210,3 +210,25 @@ def test_workflow_tool_and_report_parenting(record, monkeypatch):
     ]
     assert step.ended
     assert "raw must not" not in json.dumps(step.updates)
+
+
+def test_repair_attempts_keep_separate_validation_metadata(record, monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(obs, "configured_client", lambda: client)
+    trace = obs.ReportTrace(record)
+    trace.start_generation(metadata={"attempt": 1, "attempt_id": "first"})
+    trace.end_generation(
+        "DecisionValidationError",
+        validation={"valid": False, "code": "unavailable_evidence"},
+    )
+    trace.start_generation(metadata={"attempt": 2, "repair_of": "first"})
+    trace.end_generation(validation={"valid": True, "code": "ok"})
+    trace.finish()
+    (first_args, first), (second_args, second) = client.root.children
+    assert first_args["metadata"]["attempt"] == 1
+    assert second_args["metadata"]["repair_of"] == "first"
+    assert first.updates[0]["status_message"] == "unavailable_evidence"
+    assert first.updates[0]["level"] == "ERROR"
+    assert second.updates[0]["level"] == "DEFAULT"
+    assert second.updates[0]["metadata"]["validation"]["valid"] is True
+    assert first.ended and second.ended

@@ -1,0 +1,138 @@
+{
+  "dataset_version": "agent-reference-v1",
+  "scope": "실제 실패 패턴에서 만든 합성 회귀 사례. 모델 입력과 별도인 검토 기준 포함.",
+  "cases": [
+    {
+      "case_id": "unobserved_previous_window",
+      "synthetic": true,
+      "evidence": [
+        {
+          "evidence_id": "current",
+          "status": "data_available",
+          "summary": {
+            "min_value": 0,
+            "max_value": 0
+          }
+        }
+      ],
+      "available_tools": [
+        "previous_metrics"
+      ],
+      "decision": {
+        "rationale": "추가 근거 확인",
+        "assessment": "needs_investigation",
+        "limitations": [
+          "제한된 관측 범위"
+        ],
+        "next_checks": [
+          "추가 관측 확인"
+        ],
+        "action": "previous_metrics",
+        "hypotheses": [
+          {
+            "statement": "직전 구간의 요청률이 현재보다 높다.",
+            "evidence_ids": [
+              "current"
+            ]
+          }
+        ]
+      },
+      "expected_validation_error": null,
+      "semantic_expectation": "unsupported_hypothesis",
+      "review_reason": "직전 구간을 아직 조회하지 않아 비교를 뒷받침하지 못한다."
+    },
+    {
+      "case_id": "zero_rate_failure_claim",
+      "synthetic": true,
+      "evidence": [
+        {
+          "evidence_id": "current",
+          "status": "data_available",
+          "summary": {
+            "min_value": 0,
+            "max_value": 0
+          }
+        },
+        {
+          "evidence_id": "previous",
+          "status": "data_available",
+          "summary": {
+            "min_value": 0,
+            "max_value": 0
+          }
+        }
+      ],
+      "available_tools": [
+        "logs"
+      ],
+      "decision": {
+        "rationale": "추가 근거 확인",
+        "assessment": "needs_investigation",
+        "limitations": [
+          "제한된 관측 범위"
+        ],
+        "next_checks": [
+          "추가 관측 확인"
+        ],
+        "action": "logs",
+        "hypotheses": [
+          {
+            "statement": "현재 구간의 외부 API 호출이 정상적으로 이루어지지 않았다.",
+            "evidence_ids": [
+              "current"
+            ]
+          }
+        ]
+      },
+      "expected_validation_error": null,
+      "semantic_expectation": "unsupported_hypothesis",
+      "review_reason": "0 요청률만으로 호출 실패를 주장할 수 없다."
+    },
+    {
+      "case_id": "no_data_hypothesis_reference",
+      "synthetic": true,
+      "evidence": [
+        {
+          "evidence_id": "current",
+          "status": "data_available",
+          "summary": {
+            "min_value": 0,
+            "max_value": 0
+          }
+        },
+        {
+          "evidence_id": "logs",
+          "status": "no_data",
+          "summary": {
+            "log_count": 0
+          }
+        }
+      ],
+      "available_tools": [
+        "warning_logs"
+      ],
+      "decision": {
+        "rationale": "추가 근거 확인",
+        "assessment": "needs_investigation",
+        "limitations": [
+          "제한된 관측 범위"
+        ],
+        "next_checks": [
+          "추가 관측 확인"
+        ],
+        "action": "warning_logs",
+        "hypotheses": [
+          {
+            "statement": "현재 구간에 경고 로그가 존재할 가능성이 있다.",
+            "evidence_ids": [
+              "logs"
+            ]
+          }
+        ]
+      },
+      "expected_validation_error": "unavailable_evidence",
+      "semantic_expectation": "unsupported_hypothesis",
+      "review_reason": "반환 로그 없음은 경고 존재 가설의 근거가 아니다."
+    }
+  ]
+}

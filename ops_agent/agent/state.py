@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -47,10 +47,12 @@ class AgentState(TypedDict):
     deadline: float
     limits: dict
     prompt: str
+    prompt_version: NotRequired[str]
     prompt_sha256: str
     action: str
     evidence: list[dict]
     decisions: list[dict]
     stop_reason: str
     error_type: str | None
+    decision_error: NotRequired[dict | None]
     report: dict | None

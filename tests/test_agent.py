@@ -19,6 +19,10 @@ from ops_agent.agent.budget import (
     read_budget,
     reserve,
 )
+from ops_agent.agent.decision_validation import (
+    DecisionValidationError,
+    decision_schema,
+)
 from ops_agent.agent.graph import build_graph
 from ops_agent.config import NUM_CTX, PROJECT_DIR, TOKEN_RESERVATION
 from ops_agent.persistence import session
@@ -244,10 +248,11 @@ def test_model_response_and_failure_receipts(state, monkeypatch, failure):
     else:
         assert asyncio.run(planner.choose_action(state, []))["action"] == "finish"
     receipts = list(Path(state["directory"]).glob("decision-*.json"))
-    assert len(receipts) == 1
+    attempts = 2 if failure == "invalid" else 1
+    assert len(receipts) == attempts
     receipt = read_json(receipts[0])
     assert bool(receipt["error_type"]) == bool(failure)
-    assert read_budget(state)["llm_calls"] == 1
+    assert read_budget(state)["llm_calls"] == attempts
     if failure != "timeout":
         assert receipt["usage"]["input_tokens"] == 123
 
@@ -510,3 +515,165 @@ def test_incomplete_report_does_not_reuse_stale_interpretation(state):
     assert "아직 직전 구간 미조회" not in report["limitations"]
     assert "직전 구간을 조회한다" not in report["next_checks"]
     assert report["decisions"] == state["decisions"]
+
+
+@pytest.mark.parametrize("status", ["no_data", "invalid_data", "tool_error"])
+def test_schema_and_context_exclude_non_data_hypothesis_ids(state, status):
+    state["evidence"] = [evidence(), evidence("logs", status)]
+    schema = decision_schema(state, ["warning_logs"])
+    items = schema["$defs"]["Hypothesis"]["properties"]["evidence_ids"]["items"]
+    assert items["enum"] == ["current_metrics"]
+    context = planner.build_context(state, ["warning_logs"])
+    assert context["allowed_hypothesis_evidence_ids"] == ["current_metrics"]
+    assert context["evidence"][1]["status"] == status
+    state["evidence"] = [evidence("logs", status)]
+    assert decision_schema(state, [])["properties"]["hypotheses"]["maxItems"] == 0
+    # 생성 스키마와 별개로 사후 검사도 우회할 수 없다.
+    with pytest.raises(DecisionValidationError) as exc:
+        planner.validate_decision(
+            json.dumps(
+                decision(hypotheses=[{"statement": "가설", "evidence_ids": ["logs"]}])
+            ),
+            state,
+            [],
+        )
+    assert exc.value.code == "unavailable_evidence"
+
+
+@pytest.mark.parametrize(
+    "content,code",
+    [
+        ("{}", "schema_error"),
+        (json.dumps(decision("logs")), "invalid_action"),
+        (
+            json.dumps(
+                decision(
+                    hypotheses=[{"statement": "가설", "evidence_ids": ["missing"]}]
+                )
+            ),
+            "unknown_evidence",
+        ),
+    ],
+)
+def test_validation_errors_have_stable_safe_codes(state, content, code):
+    with pytest.raises(DecisionValidationError) as exc:
+        planner.validate_decision(content, state, [])
+    assert exc.value.details()["code"] == code
+    assert exc.value.details()["valid"] is False
+
+
+def fake_model(monkeypatch, state, outputs):
+    calls = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def chat(self, **kwargs):
+            calls.append(kwargs)
+            value = outputs[len(calls) - 1]
+            if callable(value):
+                value = value()
+            return ChatResponse(
+                model=state["model"],
+                done=True,
+                done_reason="stop",
+                message={"role": "assistant", "content": json.dumps(value)},
+                prompt_eval_count=100,
+                eval_count=20,
+            )
+
+    monkeypatch.setattr(planner, "AsyncClient", Client)
+    return calls
+
+
+def bad_reference():
+    return decision(hypotheses=[{"statement": "가설", "evidence_ids": ["logs"]}])
+
+
+def test_one_repair_preserves_both_responses_and_charges_budget(state, monkeypatch):
+    state["evidence"] = [evidence(), evidence("logs", "no_data")]
+    calls = fake_model(monkeypatch, state, [bad_reference(), decision()])
+    result = asyncio.run(planner.choose_action(state, []))
+    assert result["hypotheses"] == []
+    assert len(calls) == 2
+    assert calls[1]["messages"][2]["role"] == "assistant"
+    feedback = json.loads(calls[1]["messages"][3]["content"])
+    assert feedback["validation_feedback"]["code"] == "unavailable_evidence"
+    assert feedback["allowed_hypothesis_evidence_ids"] == ["current_metrics"]
+    receipts = sorted(
+        [read_json(p) for p in Path(state["directory"]).glob("decision-*.json")],
+        key=lambda r: r["attempt"],
+    )
+    first, second = receipts
+    assert first["validation"]["code"] == "unavailable_evidence"
+    assert second["validation"] == {"valid": True, "code": "ok"}
+    assert first["decision_id"] == second["decision_id"]
+    assert second["repair_of"] == first["attempt_id"]
+    assert json.loads(first["response"]["message"]["content"]) == bad_reference()
+    assert read_budget(state)["llm_calls"] == 2
+    assert read_budget(state)["reserved_tokens"] == 2 * TOKEN_RESERVATION
+    assert read_budget(state)["tool_calls"] == 0
+
+
+def test_failed_repair_terminates_with_diagnostic_in_report(state, monkeypatch):
+    state["evidence"] = [evidence(), evidence("logs", "no_data")]
+    calls = fake_model(monkeypatch, state, [bad_reference(), bad_reference()])
+    update = asyncio.run(nodes.AgentNodes().decide(state))
+    assert len(calls) == 2
+    assert update["stop_reason"] == "decision_error"
+    assert update["decision_error"]["code"] == "unavailable_evidence"
+    state.update(update)
+    report = build_report(state)
+    assert report["status"] == "incomplete"
+    assert report["decision_error"]["code"] == "unavailable_evidence"
+    assert report["hypotheses"] == []
+
+
+@pytest.mark.parametrize("constraint", ["llm", "tokens", "time", "context"])
+def test_repair_obeys_existing_budgets_and_size_limit(state, monkeypatch, constraint):
+    if constraint == "llm":
+        state["limits"]["llm_calls"] = 1
+    if constraint == "tokens":
+        state["limits"]["reserved_tokens"] = TOKEN_RESERVATION
+
+    def first_response():
+        if constraint == "time":
+            state["deadline"] = time.time() - 1
+        if constraint == "context":
+            return {"unexpected": "x" * NUM_CTX}
+        return bad_reference()
+
+    calls = fake_model(monkeypatch, state, [first_response])
+    expected = planner.ContextTooLarge if constraint == "context" else BudgetExceeded
+    with pytest.raises(expected):
+        asyncio.run(planner.choose_action(state, []))
+    assert len(calls) == 1
+    assert read_budget(state)["llm_calls"] == 1
+    assert len(list(Path(state["directory"]).glob("decision-*.json"))) == 1
+
+
+def test_saved_prompt_version_is_not_relabelled_on_resume(state, monkeypatch):
+    state.pop("prompt_version")  # 이전 v3 체크포인트의 ops_agent_v2 프롬프트
+    fake_model(monkeypatch, state, [decision()])
+    asyncio.run(planner.choose_action(state, []))
+    receipt = read_json(next(Path(state["directory"]).glob("decision-*.json")))
+    assert receipt["prompt_version"] == "ops_agent_v2"
+
+
+@pytest.mark.parametrize(
+    "case",
+    read_json(PROJECT_DIR / "evals/agent-reference-cases.json")["cases"],
+    ids=lambda case: case["case_id"],
+)
+def test_regression_cases_separate_reference_validity_from_semantic_review(case):
+    state = {"evidence": case["evidence"]}
+    content = json.dumps(case["decision"])
+    if code := case["expected_validation_error"]:
+        with pytest.raises(DecisionValidationError) as exc:
+            planner.validate_decision(content, state, case["available_tools"])
+        assert exc.value.code == code
+    else:
+        # 유효한 ID를 붙인 근거 없는 가설은 참조 검사만으로 검출되지 않는다.
+        assert planner.validate_decision(content, state, case["available_tools"])
+    assert case["semantic_expectation"] == "unsupported_hypothesis"
