@@ -91,6 +91,79 @@ def test_choices_change_actual_queries_and_hypothesis_can_be_rejected(state):
     assert score(CASES[2], report)["hypothesis_status_match"]
 
 
+def test_new_evidence_and_query_purpose_survive_sqlite_resume(state):
+    directory = Path(state["directory"])
+    contexts = []
+
+    async def planner(active, context):
+        contexts.append(context)
+        if len(contexts) == 1:
+            update = context["investigation_update"]
+            assert update["last_query"] is None
+            assert update["hypotheses_before_new_evidence"] == []
+            assert update["new_evidence_ids"] == [
+                e["evidence_id"] for e in active["evidence"]
+            ]
+            return choose(context).model_dump() | {
+                "hypotheses": [
+                    {
+                        "id": "h1",
+                        "statement": "checkout 지연 증가",
+                        "status": "insufficient_evidence",
+                        "evidence_ids": [active["evidence"][1]["evidence_id"]],
+                    }
+                ]
+            }
+        update = context["investigation_update"]
+        new_id = active["evidence"][-1]["evidence_id"]
+        assert update["new_evidence_ids"] == [new_id]
+        assert update["last_query"]["result_evidence_ids"] == [new_id]
+        assert update["last_query"]["window"] == "previous"
+        assert update["last_query"]["purpose"] == active["decisions"][-1]["rationale"]
+        assert (
+            update["hypotheses_before_new_evidence"]
+            == active["decisions"][-1]["hypotheses"]
+        )
+        assert {e["evidence_id"] for e in context["observations"]} == {
+            e["evidence_id"] for e in active["evidence"]
+        }
+        # Presentation alone must not force a hypothesis or another query.
+        return HTTPDecision(action="finish", rationale="모델이 종료를 선택한다.")
+
+    executor = fixture_executor(CASES[2])
+    for index in range(3):
+        paused = asyncio.run(
+            run(
+                directory,
+                state if index == 0 else None,
+                step=True,
+                planner=planner,
+                tool_executor=executor,
+            )
+        )
+        assert paused["status"] == "paused"
+    report = asyncio.run(run(directory, planner=planner, tool_executor=executor))
+    assert report["status"] == "completed"
+    assert len(contexts) == 2
+    assert report["interpretation"]["hypotheses"] == []
+
+
+def test_last_query_result_is_matched_by_arguments_not_metric(state):
+    asyncio.run(seed(state))
+    active = {**state, "deadline": time.time() + 30}
+    nodes = HTTPNodes(planners.rule_planner, tool_executor=fixture_executor(CASES[0]))
+    decision = asyncio.run(nodes._decide(active))
+    state["decisions"] = decision["decisions"]
+    _, candidates = context_and_queries(state)
+    # A different window of the same metric is new, but isn't this query's result.
+    last = state["decisions"][-1]
+    other = candidates[(last["endpoint_id"], last["metric"], "second_half")]
+    state["evidence"].append(asyncio.run(fixture_executor(CASES[0])(active, other)))
+    update = context_and_queries(state)[0]["investigation_update"]
+    assert update["new_evidence_ids"] == [state["evidence"][-1]["evidence_id"]]
+    assert update["last_query"]["result_evidence_ids"] == []
+
+
 def test_zero_traffic_endpoint_and_time_windows_remain_selectable(state):
     asyncio.run(seed(state, CASES[1]))
     context, candidates = context_and_queries(state)

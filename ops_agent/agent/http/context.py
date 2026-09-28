@@ -121,6 +121,7 @@ def context_and_queries(state: dict) -> tuple[dict, dict]:
         )
     context = {
         "symptom": state["symptom"],
+        "investigation_update": investigation_update(state),
         "scope": state["request"],
         "endpoints": [
             {k: v for k, v in e.items() if k != "observations"} for e in endpoints
@@ -145,6 +146,33 @@ def context_and_queries(state: dict) -> tuple[dict, dict]:
         "sample_count_meaning": "평가 시점 수이며 요청 건수가 아님. 5분 rate 구간은 서로 겹친다.",
     }
     return context, candidates
+
+
+def investigation_update(state: dict) -> dict:
+    """직전 판단 이후의 근거를 표시한다. 읽었거나 가설을 검증했다는 뜻은 아니다."""
+    last = state["decisions"][-1] if state["decisions"] else None
+    considered = set(last["evidence_considered"]) if last else set()
+    last_query = None
+    if last and last["query"]:
+        key = identity(HTTPQuery.model_validate(last["query"]))
+        last_query = {
+            "endpoint_id": last["endpoint_id"],
+            "metric": last["metric"],
+            "window": last["window"],
+            "purpose": last["rationale"],
+            "result_evidence_ids": [
+                e["evidence_id"] for e in state["evidence"] if e["query_key"] == key
+            ],
+        }
+    return {
+        "new_evidence_ids": [
+            e["evidence_id"]
+            for e in state["evidence"]
+            if e["evidence_id"] not in considered
+        ],
+        "last_query": last_query,
+        "hypotheses_before_new_evidence": last["hypotheses"] if last else [],
+    }
 
 
 def validate_choice(value, state: dict) -> tuple[HTTPDecision, HTTPQuery | None]:

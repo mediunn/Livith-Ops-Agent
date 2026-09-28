@@ -63,6 +63,8 @@ Grafana 대신 조건별 합성 MCP 응답을 사용하며, `llm`·`both`는 로
 [HTTP 실행 결과](results/agent/http-agent-validation.md)에 실제 3B 실패와 Grafana 연결 검증을 기록했습니다.
 [3B·14B 동일 예산 비교](results/agent/http-model-comparison.md)에는 판단 실패와 응답 시간 초과를 구분해 기록했습니다.
 [90초 호출 제한의 반복 평가](results/agent/http-repeat-evaluation.md)에는 모델별 두 번 실행한 결과와 원문 검토를 기록했습니다.
+[새 근거 표시 실험](results/agent/http-evidence-update.md)은 입력 표시만 변경한 후속 실행이며,
+일부 새 근거 인용과 조사 품질 개선을 구분해 기록했습니다.
 
 ## Agent 전체 루프 평가
 
