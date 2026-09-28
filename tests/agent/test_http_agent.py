@@ -202,6 +202,7 @@ def test_budget_exhaustion_marks_unreviewed_observations(state):
 
 
 def test_sqlite_resume_excludes_pause_and_preserves_evidence(state, monkeypatch):
+    state["limits"]["llm_seconds"] = 90
     directory = Path(state["directory"])
     executor = fixture_executor(CASES[0])
     paused = asyncio.run(
@@ -222,6 +223,7 @@ def test_sqlite_resume_excludes_pause_and_preserves_evidence(state, monkeypatch)
     )
     assert report["status"] == "completed"
     assert report["remaining_seconds"] > 170
+    assert report["limits"]["llm_seconds"] == 90
     assert report["budget"]["tool_calls"] == 4
     assert report["facts"][0]["evidence_id"] == first["evidence_id"]
     assert asyncio.run(run(directory)) == report

@@ -25,12 +25,34 @@ Agent 루프를 실행합니다. 두 평가기는 별도 데이터셋과 검사 
 ```bash
 uv run python -m ops_agent.cli.evaluate_http_agent --planner rules
 uv run python -m ops_agent.cli.evaluate_http_agent --planner both --model qwen2.5:3b
+
+# 같은 호출 제한으로 두 모델을 각각 두 번 비교
+uv run python -m ops_agent.cli.evaluate_http_agent --planner llm \
+  --models qwen2.5:3b huihui_ai/qwen2.5-abliterate:14b-instruct \
+  --repeat 2 --seconds 300 --llm-seconds 90 --warmup
 ```
 
 `evaluation/http_agent.py`의 개발용 네 사례를 실제 HTTP 실행기·파서·그래프·SQLite에 통과시킵니다.
 Grafana 대신 조건별 합성 MCP 응답을 사용하며, `llm`·`both`는 로컬 Ollama를 호출합니다.
 데이터 없는 경우를 제외한 세 사례는 지연 증가·요청률 0으로 감소·증가 의심 반박을 다룹니다.
 기대 결과는 모델 입력에 포함하지 않습니다. 독립 평가 데이터셋은 아닙니다.
+
+기본값은 반복 1회·조사 180초·모델 호출 45초이며, `--repeat`(최대 10회), `--seconds`,
+`--llm-seconds`(최대 180초)로 바꿀 수 있습니다. 모든 비교 모델에 같은 예산을 적용하고 반복마다
+모델 순서를 순환합니다. `--warmup`은 모델별 배치 전에 빈 메시지로 사전 로딩하며 조사 예산과
+별도로 시간·성공 여부를 저장합니다. 로딩 실패도 기록하고 실제 평가 요청은 계속합니다.
+`--case`를 반복 지정하면 원하는 사례만 실행합니다. 근거 UUID는 실행마다 달라집니다.
+
+`metadata.json`에는 데이터셋·설정·실행 코드 해시를, `summary.json`에는 개별 결과·모델별 집계를
+저장합니다. 사례마다 요약을 갱신하므로 중단 시 완료된 사례가 남습니다. `status`가
+`interrupted_or_failed`이거나 `running`이면 전체 평가가 완료된 것이 아닙니다. 기존 결과 디렉터리는
+덮어쓰지 않습니다. `--planner both`의 규칙 기준선은 모델 수와 관계없이 반복당 한 번만 실행합니다.
+
+`outcome`은 시간 초과(`timeout`), 잘못된 조회 응답(`invalid_decision`), 필요한 비교 누락
+(`missing_comparison`), 가설 상태·인용 검사 실패(`hypothesis_check_failed`) 등을 구분합니다.
+`automatic_checks_passed`도 가설 문장이 옳다는 판정은 아닙니다. 빈 데이터는 집계의
+`comparison_runs`에서 제외합니다. 토큰은 수신한 합계(`known_*`)와 미수신 호출 수를 함께 기록하며,
+서버 로딩·입력 평가·출력 생성 시간은 응답이 있을 때만 기록합니다. 사용량 미상은 0이 아닙니다.
 
 `checks`는 완료·중복·예산·필요한 대상의 직전 구간 조회를 검사하며 실패하면 CLI 종료 코드는 1입니다.
 `hypothesis_status_match`는 상태와 양쪽 구간 근거 인용만 확인하는 별도 진단값입니다.
@@ -40,6 +62,7 @@ Grafana 대신 조건별 합성 MCP 응답을 사용하며, `llm`·`both`는 로
 실행별 원본·모델 응답·보고서·요약은 `artifacts/evaluations/http-agent/<ID>/`에 남습니다.
 [HTTP 실행 결과](results/agent/http-agent-validation.md)에 실제 3B 실패와 Grafana 연결 검증을 기록했습니다.
 [3B·14B 동일 예산 비교](results/agent/http-model-comparison.md)에는 판단 실패와 응답 시간 초과를 구분해 기록했습니다.
+[90초 호출 제한의 반복 평가](results/agent/http-repeat-evaluation.md)에는 모델별 두 번 실행한 결과와 원문 검토를 기록했습니다.
 
 ## Agent 전체 루프 평가
 

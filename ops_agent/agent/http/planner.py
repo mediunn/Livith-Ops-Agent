@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -65,7 +66,9 @@ async def llm_planner(state: dict, context: dict) -> HTTPDecision:
         )
         if size > MAX_INPUT_BYTES:
             raise ValueError("http_planner_input_too_large")
-        timeout = min(45.0, remaining_seconds(state))
+        timeout = min(
+            state["limits"].get("llm_seconds", 45.0), remaining_seconds(state)
+        )
         reserve(state, "llm")
         receipt = {
             "attempt": attempt,
@@ -77,7 +80,10 @@ async def llm_planner(state: dict, context: dict) -> HTTPDecision:
             "response": None,
             "usage": None,
             "validation_error": None,
+            "timeout_seconds": timeout,
+            "started_at": time.time(),
         }
+        started = time.monotonic()
         feedback = None
         try:
             async with asyncio.timeout(timeout):
@@ -111,6 +117,7 @@ async def llm_planner(state: dict, context: dict) -> HTTPDecision:
             receipt["error_type"] = type(exc).__name__
             raise
         finally:
+            receipt["elapsed_seconds"] = time.monotonic() - started
             save_json(
                 Path(state["directory"]) / f"decision-{uuid4().hex}.json", receipt
             )

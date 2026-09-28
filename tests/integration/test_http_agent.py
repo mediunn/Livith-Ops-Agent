@@ -52,10 +52,12 @@ def test_live_collection_path_opens_one_session_and_closes_it(tmp_path, monkeypa
     [
         ["--seconds", "0"],
         ["--tool-calls", "1"],
+        ["--llm-seconds", "0"],
         ["--route", "invalid"],
         ["--start", "2026-09-26T13:00:00"],
         ["--resume", "../escape"],
         ["--resume", "0" * 32, "--planner", "rules"],
+        ["--resume", "0" * 32, "--llm-seconds", "90"],
     ],
 )
 def test_cli_rejects_invalid_requests_without_artifacts(tmp_path, monkeypatch, options):

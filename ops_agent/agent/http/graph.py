@@ -31,6 +31,7 @@ def initial_state(
     model="qwen2.5:3b",
     seconds=180,
     tool_calls=6,
+    llm_seconds=45,
 ) -> dict:
     scope = HTTPQuery.model_validate(scope.model_dump())
     if not symptom.strip() or len(symptom) > 1000:
@@ -43,6 +44,8 @@ def initial_state(
         raise ValueError("유효한 planner와 로컬 모델 이름이 필요합니다.")
     if not 1 <= seconds <= 3600 or not 2 <= tool_calls <= 10:
         raise ValueError("시간은 1~3600초, 도구 호출은 2~10회여야 합니다.")
+    if not 1 <= llm_seconds <= 180:
+        raise ValueError("모델 호출 제한은 1~180초여야 합니다.")
     prompt = HTTP_AGENT_PROMPT_PATH.read_text(encoding="utf-8").strip()
     directory.mkdir(parents=True, exist_ok=False)
     initialize_budget(directory)
@@ -59,6 +62,7 @@ def initial_state(
         "limits": {
             "tool_calls": tool_calls,
             "llm_calls": 8,
+            "llm_seconds": llm_seconds,
             "reserved_tokens": 8 * TOKEN_RESERVATION,
         },
         "remaining_seconds": float(seconds),
@@ -195,6 +199,7 @@ class HTTPNodes:
                     "hypothesis_status_meaning": "planner의 해석이며 독립적으로 검증된 판정이 아님",
                 },
                 "budget": read_budget(state),
+                "limits": {"llm_seconds": 45, **state["limits"]},
                 "remaining_seconds": state["remaining_seconds"],
             }
         }

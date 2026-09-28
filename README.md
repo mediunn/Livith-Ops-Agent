@@ -92,6 +92,7 @@ uv run python -m ops_agent.cli.evaluate_http_agent --planner both
 
 `--start`, `--end`, `--timezone`, `--route`, `--method`는 아래 HTTP 도구와 같습니다.
 기본 실행 예산은 180초, 조회 6회(초기 2회 포함)이며 `--seconds`, `--tool-calls`로 조절합니다.
+`--llm-seconds`는 모델 호출당 제한이며 기본 45초입니다. 전체 남은 시간보다 길게 실행되지는 않습니다.
 모델은 `--model`로 지정하며 기본값은 `qwen2.5:3b`입니다. HTTP 조사의 `--step` 중단 시간은
 실행 시간에서 제외합니다. 실행·재개 한 번에 MCP 세션 하나를 공유합니다.
 
@@ -105,8 +106,10 @@ uv run python -m ops_agent.cli.evaluate_http_agent --planner both
 안에서만 허용하며 임의 PromQL은 실행하지 않습니다. 10분 미만 구간에는 절반 조회를 제공하지 않습니다.
 규칙 기준선은 최대 평균 지연이 가장 큰 엔드포인트의 직전 지연·요청률을 조회한 뒤 종료합니다.
 합성 평가는 대상 선택과 양쪽 근거 인용을 측정하는 개발용 4개 사례이며, 가설 의미 검토는 별도입니다.
+평가 CLI의 `--models`, `--repeat`, `--llm-seconds`로 같은 조건의 모델 반복 비교를 실행할 수 있습니다.
 현재 3B 모델은 비교가 필요한 3개 사례에서 모두 필요한 직전 구간 조회를 놓쳤습니다.
 이 기능은 판단 품질을 검증 중인 실험 단계입니다. [실행 결과와 실패 분석](evals/results/agent/http-agent-validation.md)을 참고하세요.
+[3B·14B 반복 평가](evals/results/agent/http-repeat-evaluation.md)에서는 14B의 조회 선택 개선과 남은 가설 검증 실패를 확인했습니다.
 
 ### HTTP 도구 직접 실행
 

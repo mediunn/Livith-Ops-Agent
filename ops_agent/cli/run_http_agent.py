@@ -30,6 +30,7 @@ def main():
         "--method", choices=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
     )
     parser.add_argument("--seconds", type=int)
+    parser.add_argument("--llm-seconds", type=int, help="모델 호출당 제한 (기본 45초)")
     parser.add_argument("--tool-calls", type=int)
     args = parser.parse_args()
     fields = (
@@ -42,6 +43,7 @@ def main():
         "route",
         "method",
         "seconds",
+        "llm_seconds",
         "tool_calls",
     )
     if args.resume:
@@ -67,6 +69,7 @@ def main():
                 model=args.model or "qwen2.5:3b",
                 seconds=180 if args.seconds is None else args.seconds,
                 tool_calls=6 if args.tool_calls is None else args.tool_calls,
+                llm_seconds=45 if args.llm_seconds is None else args.llm_seconds,
             )
         except (ValueError, ZoneInfoNotFoundError) as exc:
             parser.error(str(exc))
