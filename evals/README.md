@@ -39,6 +39,7 @@ Grafana 대신 조건별 합성 MCP 응답을 사용하며, `llm`·`both`는 로
 
 실행별 원본·모델 응답·보고서·요약은 `artifacts/evaluations/http-agent/<ID>/`에 남습니다.
 [HTTP 실행 결과](results/agent/http-agent-validation.md)에 실제 3B 실패와 Grafana 연결 검증을 기록했습니다.
+[3B·14B 동일 예산 비교](results/agent/http-model-comparison.md)에는 판단 실패와 응답 시간 초과를 구분해 기록했습니다.
 
 ## Agent 전체 루프 평가
 
