@@ -3,12 +3,12 @@
 **지표와 로그를 근거로 운영 문제를 조사하는 로컬 AI Agent.**
 
 Grafana MCP로 Prometheus·Loki 데이터를 조회하고, 로컬 Ollama 모델이 다음 조사 도구를
-선택합니다. 관측 사실과 코드가 작성한 설명을 담은 보고서를 생성하고, 조사 과정은 저장해
+선택합니다. 관측 사실과 조사 판단을 구분한 보고서를 생성하고, 조사 과정은 저장해
 중단 후에도 이어갈 수 있습니다.
 
 ## 주요 기능
 
-- **도구 선택 기반 조사** — 수집한 근거에 따라 이전 구간 지표나 관련 로그를 추가 조회
+- **HTTP 후속 조사 선택** — 관측된 엔드포인트·지표·비교 구간을 모델이 선택하고 가설 갱신
 - **중단·재개** — LangGraph와 SQLite 체크포인트로 조사 상태 보존
 - **근거가 연결된 보고서** — 조회 조건·출처·관측값과 모델 해석을 구분해 JSON으로 출력
 - **실행 추적과 평가** — Langfuse 연동 및 합성 사례 기반 고정 보고서 평가
@@ -69,7 +69,46 @@ uv run python -m ops_agent.cli.run_agent --resume THREAD_ID
 새 조사는 상태 v4입니다. 상태 v2·v3의 기존 조사는 재개할 수 없으며, 저장된 결과 파일은 유지됩니다.
 Agent CLI는 macOS/Linux를 지원합니다.
 
-## HTTP 요청률·평균 지연 조회
+## HTTP 조사 에이전트
+
+HTTP 요청률과 평균 지연을 먼저 수집한 다음, 모델이 **어느 엔드포인트를 어떤 구간에서
+더 조사할지 또는 종료할지** 선택합니다. 직전 구간 비교와 현재 구간의 앞·뒤 절반 조회는
+선택 사항입니다. 가설에는 근거 ID를 인용하고, 후속 관측에 따라 가설 상태를 갱신합니다.
+
+```bash
+uv run python -m ops_agent.cli.run_http_agent \
+  --symptom '/api/v7/recommendation//concerts 평균 지연이 직전 구간보다 증가했는지 확인'
+
+# 같은 관측·도구·예산으로 규칙 기준선 실행
+uv run python -m ops_agent.cli.run_http_agent --planner rules
+
+# 조회 하나 후 중단하고 이어서 실행
+uv run python -m ops_agent.cli.run_http_agent --step
+uv run python -m ops_agent.cli.run_http_agent --resume THREAD_ID
+
+# 합성 데이터로 규칙과 실제 로컬 모델 비교 (Grafana 연결 없음)
+uv run python -m ops_agent.cli.evaluate_http_agent --planner both
+```
+
+`--start`, `--end`, `--timezone`, `--route`, `--method`는 아래 HTTP 도구와 같습니다.
+기본 실행 예산은 180초, 조회 6회(초기 2회 포함)이며 `--seconds`, `--tool-calls`로 조절합니다.
+모델은 `--model`로 지정하며 기본값은 `qwen2.5:3b`입니다. HTTP 조사의 `--step` 중단 시간은
+실행 시간에서 제외합니다. 실행·재개 한 번에 MCP 세션 하나를 공유합니다.
+
+결과는 `artifacts/http-agent/<thread_id>/report.json`입니다. `facts`는 파싱된 관측,
+`decisions`는 선택 이력, `interpretation.hypotheses`는 최종 가설입니다. 가설의
+`supported`·`rejected`도 모델 해석이며, 인용한 근거가 존재하는지와 문장 내용이 맞는지는
+다른 검사입니다. 예산 종료로 마지막 관측을 검토하지 못했다면 `unreviewed_evidence_ids`에 남깁니다.
+
+현재 후보는 초기 관측 중 최대 평균 지연이 높은 **상위 12개 엔드포인트**로 제한됩니다.
+특정 대상은 `--route`로 범위를 좁힐 수 있습니다. 모델이 고르는 값은 이 후보·두 지표·세 구간
+안에서만 허용하며 임의 PromQL은 실행하지 않습니다. 10분 미만 구간에는 절반 조회를 제공하지 않습니다.
+규칙 기준선은 최대 평균 지연이 가장 큰 엔드포인트의 직전 지연·요청률을 조회한 뒤 종료합니다.
+합성 평가는 대상 선택과 양쪽 근거 인용을 측정하는 개발용 4개 사례이며, 가설 의미 검토는 별도입니다.
+현재 3B 모델은 비교가 필요한 3개 사례에서 모두 필요한 직전 구간 조회를 놓쳤습니다.
+이 기능은 판단 품질을 검증 중인 실험 단계입니다. [실행 결과와 실패 분석](evals/results/agent/http-agent-validation.md)을 참고하세요.
+
+### HTTP 도구 직접 실행
 
 HTTP 도구를 직접 실행하려면 다음 명령을 사용합니다. 기본값은 최근 30분의 전체
 메서드·엔드포인트이며, 요청률과 평균 지연을 하나의 읽기 전용 MCP 세션에서 조회합니다.
@@ -100,7 +139,7 @@ HTTP 대상은 `ops_agent/config.py`의 `HTTP_DATASOURCE_UID`, `HTTP_JOB`에 있
 원본·요약·조회 조건·단위·예산은 `artifacts/http/<run_id>/`에 저장됩니다. 공통 실행기는
 도구와 최종 인자의 해시로 캐시를 구분하며, 같은 조사에서 조건이 달라지면 별도 근거로 저장합니다.
 각 CLI 실행은 새 조사 디렉터리를 만듭니다. 이 명령은 HTTP 수집 도구 확인용으로 모델을 호출하지
-않으며, `run_agent`의 모델 선택과 보고서는 아직 기존 외부 API 조사 경로를 사용합니다.
+않습니다. HTTP 조사 루프는 `run_http_agent`, 기존 외부 API 조사 경로는 `run_agent`로 실행합니다.
 
 ## 고정 수집과 평가
 
@@ -114,9 +153,9 @@ uv run python -m ops_agent.cli.evaluate_reports --prompt-versions ops_report_v3
 uv run python -m ops_agent.cli.evaluate_agent
 ```
 
-Agent는 반환 로그의 경고·오류 레벨과 동일 API의 구간 마지막 요청률 증가를 코드로
+기존 외부 API Agent는 반환 로그의 경고·오류 레벨과 동일 API의 구간 마지막 요청률 증가를 코드로
 검증합니다. 모델은 조회·관측 선택만 맡고, 설명·한계·다음 확인 항목은 코드가 작성합니다.
-서비스 정상·장애 판정과 원인 가설 생성은 현재 Agent 경로에서 지원하지 않습니다.
+이 경로에서는 서비스 정상·장애 판정과 원인 가설 생성을 지원하지 않습니다.
 서비스 로그가 한도 미만이고 잘리지 않았다고 명시된 경우에는 같은 범위의 경고 문자열
 추가 조회를 생략합니다. 잘림이나 완전성 정보 누락이 있으면 추가 조회를 허용하고,
 그 판단 근거와 실제 조회 여부를 보고서의 `warning_log_followup`에 기록합니다.
@@ -152,6 +191,7 @@ Agent는 반환 로그의 경고·오류 레벨과 동일 API의 구간 마지�
 ```bash
 uv run pytest -q
 uv run ruff check .
+uv run ruff format --check .
 ```
 
 테스트는 합성 응답을 사용하며 실제 Grafana·Ollama 호출과 Langfuse 전송 없이 실행합니다.

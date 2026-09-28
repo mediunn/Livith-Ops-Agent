@@ -20,6 +20,26 @@ Agent 루프를 실행합니다. 두 평가기는 별도 데이터셋과 검사 
 
 실행 중 생성되는 근거와 평가 결과는 기존 `artifacts/` 아래에 저장합니다.
 
+## HTTP 조사 평가
+
+```bash
+uv run python -m ops_agent.cli.evaluate_http_agent --planner rules
+uv run python -m ops_agent.cli.evaluate_http_agent --planner both --model qwen2.5:3b
+```
+
+`evaluation/http_agent.py`의 개발용 네 사례를 실제 HTTP 실행기·파서·그래프·SQLite에 통과시킵니다.
+Grafana 대신 조건별 합성 MCP 응답을 사용하며, `llm`·`both`는 로컬 Ollama를 호출합니다.
+데이터 없는 경우를 제외한 세 사례는 지연 증가·요청률 0으로 감소·증가 의심 반박을 다룹니다.
+기대 결과는 모델 입력에 포함하지 않습니다. 독립 평가 데이터셋은 아닙니다.
+
+`checks`는 완료·중복·예산·필요한 대상의 직전 구간 조회를 검사하며 실패하면 CLI 종료 코드는 1입니다.
+`hypothesis_status_match`는 상태와 양쪽 구간 근거 인용만 확인하는 별도 진단값입니다.
+가설의 문장 의미는 이 값이나 완료 상태로 판정하지 않습니다. `semantic_review`는 별도 검토 전까지
+`pending`입니다. 규칙 기준선은 증상 해석 없이 가장 큰 지연을 고르므로 증상 대상 선택의 강한 기준선은 아닙니다.
+
+실행별 원본·모델 응답·보고서·요약은 `artifacts/evaluations/http-agent/<ID>/`에 남습니다.
+[HTTP 실행 결과](results/agent/http-agent-validation.md)에 실제 3B 실패와 Grafana 연결 검증을 기록했습니다.
+
 ## Agent 전체 루프 평가
 
 ```bash
