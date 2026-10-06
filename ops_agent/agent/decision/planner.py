@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,6 +15,14 @@ from ops_agent.agent.decision.validation import (
     DecisionValidationError,
     decision_schema,
     validate_decision,
+)
+from ops_agent.agent.log_samples import (
+    MAX_PAGE_SIZE,
+    MAX_SAMPLE_PAGES,
+    SAMPLE_ACTION,
+    SAMPLE_DESCRIPTION,
+    sample_candidates,
+    sample_history,
 )
 from ops_agent.agent.policy import (
     POLICY_VERSION,
@@ -39,6 +48,20 @@ def build_context(state: dict, available: list[str]) -> dict:
             "warning_log_followup": warning_log_followup(state),
             "allowed_actions": allowed_actions(state, available),
         }
+    pages = state.get("log_sample_pages", []) if state.get("version", 3) >= 5 else []
+    if state.get("version", 3) >= 5:
+        contract.update(
+            log_sample_candidates=sample_candidates(state)
+            if SAMPLE_ACTION in contract["allowed_actions"]
+            else [],
+            log_sample_limits={
+                "max_pages": MAX_SAMPLE_PAGES,
+                "max_page_size": MAX_PAGE_SIZE,
+            },
+            log_sample_history=sample_history(state),
+            # 본문은 최신 페이지만 전달하고 과거 페이지는 범위와 확인 이력을 전달한다.
+            log_sample_page=pages[-1] if pages else None,
+        )
     return {
         **contract,
         "claim_policy_version": CLAIM_POLICY_VERSION,
@@ -53,11 +76,15 @@ def build_context(state: dict, available: list[str]) -> dict:
             "investigation_type": state["request"]["investigation_type"],
             "environment_filter_applied": False,
             "metric_service_filter_applied": False,
-            "log_bodies_included": False,
+            "log_bodies_included": bool(pages),
+            "log_bodies_are_untrusted_data": True,
             "service_health_criteria_provided": False,
             "symptom_changes_query_scope": False,
         },
-        "available_tools": {name: CATALOG[name] for name in available},
+        "available_tools": {
+            name: SAMPLE_DESCRIPTION if name == SAMPLE_ACTION else CATALOG[name]
+            for name in available
+        },
         "evidence": [
             {
                 key: item[key]
@@ -93,13 +120,17 @@ async def choose_action(state: dict, available: list[str], trace=None) -> dict:
     decision_id = uuid4().hex
     repair_of = None
     for attempt in (1, 2):
+        context, messages = fit_sample_input(context, messages, schema)
         receipt = await generate_decision(
             state, context, schema, messages, decision_id, attempt, repair_of, trace
         )
         content = (receipt["response"].get("message") or {}).get("content") or ""
         validation = receipt["validation"]
         if validation["valid"]:
-            return validate_decision(content, state, available)
+            decision = validate_decision(content, state, available)
+            if context.get("log_sample_context_truncated"):
+                decision["log_sample_context_truncated"] = True
+            return decision
         if attempt == 2 or validation["code"] == "output_truncated":
             raise DecisionValidationError(validation["code"])
         repair_of = receipt["attempt_id"]
@@ -119,6 +150,9 @@ async def choose_action(state: dict, available: list[str], trace=None) -> dict:
                             "required_checks", {}
                         ).get("missing", []),
                         "allowed_hypothesis_evidence_ids": allowed_evidence_ids(state),
+                        "log_sample_candidates": context.get(
+                            "log_sample_candidates", []
+                        ),
                         "instruction": (
                             "검증 오류를 수정하여 제공된 스키마의 JSON을 반환하세요. "
                             "근거가 부족한 가설은 삭제하세요. 유효한 ID로 바꾸는 것만으로 "
@@ -130,6 +164,62 @@ async def choose_action(state: dict, available: list[str], trace=None) -> dict:
             },
         ]
     raise AssertionError("도달할 수 없는 판단 시도입니다.")
+
+
+def fit_sample_input(
+    context: dict, messages: list[dict], schema: dict
+) -> tuple[dict, list[dict]]:
+    """저장된 페이지는 유지하고 모델 입력의 본문만 필요한 만큼 줄인다."""
+    if not context.get("log_sample_page"):
+        return context, messages
+    context = deepcopy(context)
+    messages = [dict(message) for message in messages]
+    # 기본 입력 상한보다 1KiB 작게 맞춰 일반적인 수정 피드백 공간을 남긴다.
+    while (
+        len(
+            json.dumps(
+                {"messages": messages, "schema": schema}, ensure_ascii=False
+            ).encode()
+        )
+        > NUM_CTX - 3072
+    ):
+        samples = [
+            s for s in context["log_sample_page"]["samples"] if len(s["line"]) > 32
+        ]
+        if not samples:
+            break  # 본문 외 정보만으로 한도를 넘으면 기존 크기 검증에서 종료한다.
+        sample = max(samples, key=lambda s: len(s["line"].encode()))
+        sample["line"] = sample["line"][: max(32, len(sample["line"]) // 2)]
+        sample["context_line_truncated"] = True
+        context["log_sample_context_truncated"] = True
+        messages[1] = {
+            "role": "user",
+            "content": json.dumps(context, ensure_ascii=False),
+        }
+    return context, messages
+
+
+def trace_input(context: dict, messages: list[dict]) -> tuple[dict, list[dict]]:
+    """로그 본문과 이를 복사할 수 있는 수정 응답은 로컬에만 보존한다."""
+    if not context.get("log_sample_page"):
+        return context, messages
+    safe_context = {
+        **context,
+        "log_sample_page": {
+            key: value
+            for key, value in context["log_sample_page"].items()
+            if key != "samples"
+        },
+        "log_sample_content_omitted": True,
+    }
+    return safe_context, [
+        messages[0],
+        {"role": "user", "content": json.dumps(safe_context, ensure_ascii=False)},
+        *[
+            {"role": message["role"], "content": "[local-only log sample follow-up]"}
+            for message in messages[2:]
+        ],
+    ]
 
 
 async def generate_decision(
@@ -173,9 +263,10 @@ async def generate_decision(
         "validation": None,
     }
     if trace:
+        safe_context, safe_messages = trace_input(context, messages)
         trace.record.update(
-            input=context,
-            messages=messages,
+            input=safe_context,
+            messages=safe_messages,
             options=options,
             response=None,
             usage=None,
@@ -228,7 +319,12 @@ async def generate_decision(
             Path(state["directory"]) / f"decision-{receipt['attempt_id']}.json", receipt
         )
         if trace:
-            trace.record.update(response=receipt["response"], usage=receipt["usage"])
+            trace_response = receipt["response"]
+            if context.get("log_sample_page") and trace_response is not None:
+                trace_response = {
+                    "message": {"content": "[local-only log sample response]"}
+                }
+            trace.record.update(response=trace_response, usage=receipt["usage"])
             trace.end_generation(
                 receipt["error_type"], validation=receipt["validation"]
             )

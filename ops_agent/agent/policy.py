@@ -1,14 +1,16 @@
 """필수 조회 이행과 관측 범위를 코드로 설명한다. 서비스 건강·원인은 판정하지 않는다."""
 
 from ops_agent.agent.claims import verified_claims
+from ops_agent.agent.log_samples import SAMPLE_ACTION, sample_candidates
 from ops_agent.agent.state import READABLE_STATUSES
 from ops_agent.tools.grafana import CATALOG, query_spec
 
-POLICY_VERSION = "investigation-policy-v2"
+POLICY_VERSION = "investigation-policy-v3"
 RATIONALES = {
     "previous_metrics": "같은 길이의 직전 구간을 조회해 외부 API 요청률 평가값을 비교한다.",
     "logs": "요청 구간의 서비스 로그를 최대 100건 조회해 반환 범위의 레벨을 확인한다.",
     "warning_logs": "warn/error 문자열에 매칭되는 로그를 최대 100건 조회해 추가 관측을 확인한다.",
+    SAMPLE_ACTION: "저장된 로그 근거에서 제한된 샘플을 읽어 다음 행동 선택에 활용한다.",
     "finish": "요청한 필수 조회를 마쳤으며, 관측값과 확인 한계를 정리해 종료한다.",
 }
 
@@ -94,6 +96,10 @@ def allowed_actions(state: dict, available: list[str]) -> list[str]:
         for a in available
         if (a != "previous_metrics" or state["request"]["compare_previous"])
         and (a != "warning_logs" or warning_log_followup(state)["eligible"])
+        and (
+            a != SAMPLE_ACTION
+            or (not coverage(state)["missing"] and bool(sample_candidates(state)))
+        )
     ]
     return actions if coverage(state)["missing"] else [*actions, "finish"]
 
@@ -106,7 +112,11 @@ def narrative(state: dict) -> dict:
         "서비스 전체 정상·장애 판정 기준과 SLO가 없어 건강 상태를 판정하지 않았다.",
         "지표는 외부 API 요청률이며 서비스 전체 요청량·오류율·지연을 나타내지 않는다.",
         "환경 필터와 지표의 서비스 라벨 필터를 적용하지 않았다.",
-        "로그 본문은 모델에 제공하지 않았고 원인 가설을 생성하지 않았다.",
+        (
+            "마스킹·길이 제한된 로그 샘플을 읽었으며 전체 로그 확인이나 원인 판정은 하지 않았다."
+            if state.get("log_sample_pages")
+            else "로그 본문은 모델에 제공하지 않았고 원인 가설을 생성하지 않았다."
+        ),
         "자연어 증상에서 필수 조사를 추출하지 않으며 명시된 요청 설정을 따른다.",
     ]
     if warning_log_followup(state)["reason"] == "base_result_complete":

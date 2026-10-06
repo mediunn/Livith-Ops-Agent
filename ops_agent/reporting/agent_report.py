@@ -4,6 +4,7 @@ import time
 
 from ops_agent.agent.budget import read_budget
 from ops_agent.agent.claims import CLAIM_POLICY_VERSION, verified_claims
+from ops_agent.agent.log_samples import MAX_SAMPLE_PAGES, sample_history
 from ops_agent.agent.policy import (
     POLICY_VERSION,
     RATIONALES,
@@ -121,6 +122,15 @@ def build_report(state: dict) -> dict:
                     "claim_ids": d.get("claim_ids", []),
                     "rationale": RATIONALES[d["action"]],
                     "narrative_source": "code_generated",
+                    **{
+                        key: d[key]
+                        for key in (
+                            "log_sample_request",
+                            "log_sample_page_seen",
+                            "log_sample_context_truncated",
+                        )
+                        if key in d
+                    },
                 }
                 for d in state["decisions"]
             ],
@@ -130,4 +140,20 @@ def build_report(state: dict) -> dict:
             report["limitations"].append(f"조사 미완료: {state['stop_reason']}")
         if state["stop_reason"] == "model_finished" and missing:
             report["stop_reason"] = "required_checks_missing"
+    if state.get("version", 3) >= 5:
+        history = sample_history(state)
+        report.update(
+            report_version="agent-report-v5",
+            log_sample_reads={
+                "pages": history,
+                "max_pages": MAX_SAMPLE_PAGES,
+                "pages_read": len(history),
+                "page_limit_reached": len(history) >= MAX_SAMPLE_PAGES,
+                "unreviewed_pages": [
+                    {"evidence_id": p["evidence_id"], "cursor": p["cursor"]}
+                    for p in history
+                    if not p["reviewed"]
+                ],
+            },
+        )
     return report

@@ -1,6 +1,8 @@
 """버전 간 공통 판단 오류 코드. 입력값을 진단 문자열에 복사하지 않는다."""
 
 ERROR_MESSAGES = {
+    "invalid_log_sample_request": "log_sample_candidates에 있는 근거 ID와 다음 cursor, 1~5의 limit을 선택하세요.",
+    "unexpected_log_sample_request": "get_log_samples 이외의 행동에는 log_sample_request를 생략하거나 null로 지정하세요.",
     "required_checks_missing": "필수 조회가 남아 있어 종료할 수 없습니다. missing_required_checks를 확인하세요.",
     "no_available_action": "필수 조회를 완료할 수 있는 행동이 없습니다.",
     "schema_error": "응답이 제공된 JSON 형식과 필드 제약을 충족하지 않습니다.",

@@ -53,6 +53,8 @@ class AgentState(TypedDict):
     action: str
     evidence: list[dict]
     decisions: list[dict]
+    log_sample_request: NotRequired[dict | None]
+    log_sample_pages: NotRequired[list[dict]]
     stop_reason: str
     error_type: str | None
     decision_error: NotRequired[dict | None]

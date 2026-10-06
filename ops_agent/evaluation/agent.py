@@ -16,15 +16,17 @@ from ops_agent.agent.graph import build_graph
 from ops_agent.collectors.loki_parser import parse_loki_response
 from ops_agent.collectors.prometheus_parser import parse_prometheus_response
 from ops_agent.config import PROJECT_DIR
-from ops_agent.persistence.artifacts import save_json
+from ops_agent.persistence.artifacts import query_artifact_path, query_key, save_json
 from ops_agent.persistence.session import initial_state
 from ops_agent.telemetry.langfuse import ReportTrace, record_evaluation
-from ops_agent.tools.grafana import measurement_for, query_spec
+from ops_agent.tools.grafana import measurement_for, query_spec, without_raw_response
 
 CASES_PATH = PROJECT_DIR / "evals/datasets/agent/agent-cases.json"
 
 
-def synthetic_observation(state: dict, case: dict, action: str) -> dict:
+def synthetic_observation(
+    state: dict, case: dict, action: str, *, include_response: bool = False
+) -> dict:
     tool, arguments = query_spec(state, action)
     if tool == "query_prometheus":
         rate = case["previous_rate" if action == "previous_metrics" else "current_rate"]
@@ -87,6 +89,7 @@ def synthetic_observation(state: dict, case: dict, action: str) -> dict:
         "summary": summary,
         "error_type": None,
         "source": "synthetic_fixture",
+        **({"response": raw} if include_response else {}),
     }
 
 
@@ -94,7 +97,19 @@ def synthetic_collector(case: dict):
     async def collect(state, trace=None):
         remaining_seconds(state)
         reserve(state, "tool")
-        item = synthetic_observation(state, case, state["action"])
+        record = synthetic_observation(
+            state, case, state["action"], include_response=True
+        )
+        record.update(
+            thread_id=state["thread_id"],
+            query_key=query_key(record["tool"], record["arguments"]),
+            completed_at=time.time(),
+        )
+        path = query_artifact_path(
+            state["directory"], record["tool"], record["arguments"]
+        )
+        save_json(path, record)
+        item = without_raw_response(record)
         if trace:
             span = trace.start_step(state["action"], item["arguments"])
             trace.end_step(span, item)

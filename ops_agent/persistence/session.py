@@ -48,6 +48,8 @@ def initial_state(args, thread_id: str) -> dict:
         "action": "",
         "evidence": [],
         "decisions": [],
+        "log_sample_pages": [],
+        "log_sample_request": None,
         "stop_reason": "",
         "error_type": None,
         "decision_error": None,
@@ -93,7 +95,7 @@ async def run(args) -> int:
             if not snapshot.values:
                 raise ValueError("해당 ID의 저장된 조사가 없습니다.")
             state = dict(snapshot.values)
-            if state.get("version") != STATE_VERSION:
+            if state.get("version") not in {4, STATE_VERSION}:
                 raise ValueError("이전 구조의 상태입니다. 새 조사를 시작하세요.")
             if args.status:
                 display(state, snapshot.next)
@@ -115,7 +117,7 @@ async def run(args) -> int:
             "run_id": invocation_id,
             "model": state["model"],
             "prompt_version": state.get("prompt_version", "ops_agent_v2"),
-            "context_version": f"agent-state-v{STATE_VERSION}",
+            "context_version": f"agent-state-v{state['version']}",
             "request": state["request"],
             "prompt_sha256": state["prompt_sha256"],
             "status": "running",
