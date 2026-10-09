@@ -16,12 +16,15 @@ from ops_agent.agent.graph import build_graph
 from ops_agent.collectors.loki_parser import parse_loki_response
 from ops_agent.collectors.prometheus_parser import parse_prometheus_response
 from ops_agent.config import PROJECT_DIR
+from ops_agent.evaluation.log_samples import evaluate_log_samples
 from ops_agent.persistence.artifacts import query_artifact_path, query_key, save_json
 from ops_agent.persistence.session import initial_state
 from ops_agent.telemetry.langfuse import ReportTrace, record_evaluation
 from ops_agent.tools.grafana import measurement_for, query_spec, without_raw_response
 
 CASES_PATH = PROJECT_DIR / "evals/datasets/agent/agent-cases.json"
+LOG_SAMPLE_CASES_PATH = PROJECT_DIR / "evals/datasets/agent/log-sample-cases.json"
+SUITES = {"agent": CASES_PATH, "log-samples": LOG_SAMPLE_CASES_PATH}
 
 
 def synthetic_observation(
@@ -48,26 +51,44 @@ def synthetic_observation(
         }
         summary = parse_prometheus_response(raw)
     else:
-        levels = case[
-            "warning_query_levels" if action == "warning_logs" else "log_levels"
-        ]
-        timestamp = int(
-            datetime.fromisoformat(arguments["startRfc3339"]).timestamp() * 1e9
-        )
-        entries = [
-            {
-                "timestamp": str(timestamp + index),
-                "line": (
-                    "Synthetic warn/error marker."
-                    if level in case["warning_query_levels"]
-                    else "Synthetic fixture."
-                ),
-                "labels": {"job": "livith-server"},
-                "structuredMetadata": {"detected_level": level},
-            }
-            for level, count in levels.items()
-            for index in range(count)
-        ]
+        if "log_entries" in case:
+            source = case[
+                "warning_query_entries" if action == "warning_logs" else "log_entries"
+            ]
+            # 배열 순서를 보존하며 backward 응답처럼 구간 끝에서 시각을 줄인다.
+            timestamp = int(
+                datetime.fromisoformat(arguments["endRfc3339"]).timestamp() * 1e9
+            )
+            entries = [
+                {
+                    "timestamp": str(timestamp - index),
+                    "line": entry["line"],
+                    "labels": {"job": "livith-server"},
+                    "structuredMetadata": {"detected_level": entry["level"]},
+                }
+                for index, entry in enumerate(source)
+            ]
+        else:
+            levels = case[
+                "warning_query_levels" if action == "warning_logs" else "log_levels"
+            ]
+            timestamp = int(
+                datetime.fromisoformat(arguments["startRfc3339"]).timestamp() * 1e9
+            )
+            entries = [
+                {
+                    "timestamp": str(timestamp + index),
+                    "line": (
+                        "Synthetic warn/error marker."
+                        if level in case["warning_query_levels"]
+                        else "Synthetic fixture."
+                    ),
+                    "labels": {"job": "livith-server"},
+                    "structuredMetadata": {"detected_level": level},
+                }
+                for level, count in levels.items()
+                for index in range(count)
+            ]
         raw = {
             "structuredContent": {
                 "data": entries,
@@ -93,27 +114,28 @@ def synthetic_observation(
     }
 
 
+def save_synthetic_observation(state: dict, case: dict, action: str) -> dict:
+    record = synthetic_observation(state, case, action, include_response=True)
+    record.update(
+        thread_id=state["thread_id"],
+        query_key=query_key(record["tool"], record["arguments"]),
+        completed_at=time.time(),
+    )
+    path = query_artifact_path(state["directory"], record["tool"], record["arguments"])
+    save_json(path, record)
+    item = without_raw_response(record)
+    save_json(Path(state["directory"]) / f"{action}.json", item)
+    return item
+
+
 def synthetic_collector(case: dict):
     async def collect(state, trace=None):
         remaining_seconds(state)
         reserve(state, "tool")
-        record = synthetic_observation(
-            state, case, state["action"], include_response=True
-        )
-        record.update(
-            thread_id=state["thread_id"],
-            query_key=query_key(record["tool"], record["arguments"]),
-            completed_at=time.time(),
-        )
-        path = query_artifact_path(
-            state["directory"], record["tool"], record["arguments"]
-        )
-        save_json(path, record)
-        item = without_raw_response(record)
+        item = save_synthetic_observation(state, case, state["action"])
         if trace:
             span = trace.start_step(state["action"], item["arguments"])
             trace.end_step(span, item)
-        save_json(Path(state["directory"]) / f"{state['action']}.json", item)
         return item
 
     return collect
@@ -171,6 +193,8 @@ def evaluate_state(state: dict, expected: dict) -> dict:
             + int(state["request"]["compare_previous"])
             + int(expected["warning_query"])
         )
+    if "log_samples" in expected:
+        checks.update(evaluate_log_samples(state, expected["log_samples"]))
     return {
         "checks": checks,
         "automatic_pass": all(checks.values()),
@@ -194,9 +218,7 @@ async def run_case(
     directory = Path(state["directory"])
     if dry_run:
         for action in ("current_metrics", "previous_metrics", "logs", "warning_logs"):
-            save_json(
-                directory / f"{action}.json", synthetic_observation(state, case, action)
-            )
+            save_synthetic_observation(state, case, action)
         return {"case_id": case["id"], "directory": str(directory), "status": "dry_run"}
     record = {
         "run_id": state["thread_id"],
@@ -264,6 +286,7 @@ async def run_case(
         "status": record["status"],
         "evaluation": record["validation"],
         "actions": [item["action"] for item in state["evidence"]],
+        "log_sample_reads": (state.get("report") or {}).get("log_sample_reads"),
         "budget": read_budget(state),
         "elapsed_seconds": record["elapsed_seconds"],
         "usage": {
@@ -276,6 +299,7 @@ async def run_case(
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--suite", choices=SUITES, default="agent")
     parser.add_argument("--case")
     parser.add_argument("--repeat", type=int, choices=range(1, 6), default=1)
     parser.add_argument("--seconds", type=int, default=180)
@@ -288,7 +312,7 @@ async def main() -> int:
         or not 1 <= args.seconds <= 3600
     ):
         parser.error("로컬 모델 이름과 1~3600초 실행 예산이 필요합니다.")
-    dataset = json.loads(CASES_PATH.read_text())
+    dataset = json.loads(SUITES[args.suite].read_text())
     cases = [c for c in dataset["cases"] if args.case in (None, c["id"])]
     if not cases:
         parser.error("해당 사례 ID가 없습니다.")
@@ -296,7 +320,12 @@ async def main() -> int:
     directory = PROJECT_DIR / "artifacts/evaluations" / suite_id
     directory.mkdir(parents=True)
     save_json(directory / "dataset.json", dataset)
-    result = {"dataset_version": dataset["version"], "synthetic": True, "results": []}
+    result = {
+        "suite": args.suite,
+        "dataset_version": dataset["version"],
+        "synthetic": True,
+        "results": [],
+    }
     print(f"평가 폴더: {directory}", flush=True)
     for repeat in range(1, args.repeat + 1):
         for case in cases:
