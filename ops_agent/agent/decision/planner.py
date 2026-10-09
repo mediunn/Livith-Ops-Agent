@@ -58,9 +58,20 @@ def build_context(state: dict, available: list[str]) -> dict:
                 "max_pages": MAX_SAMPLE_PAGES,
                 "max_page_size": MAX_PAGE_SIZE,
             },
-            log_sample_history=sample_history(state),
+            # 원본·보고서에는 전체 정보를 보존한다. 입력에서는 evidence와 중복된
+            # source_summary만 제외해 본문이 메타데이터 때문에 잘리지 않도록 한다.
+            log_sample_history=[
+                {key: value for key, value in page.items() if key != "source_summary"}
+                for page in sample_history(state)
+            ],
             # 본문은 최신 페이지만 전달하고 과거 페이지는 범위와 확인 이력을 전달한다.
-            log_sample_page=pages[-1] if pages else None,
+            log_sample_page={
+                key: value
+                for key, value in pages[-1].items()
+                if key != "source_summary"
+            }
+            if pages
+            else None,
         )
     return {
         **contract,

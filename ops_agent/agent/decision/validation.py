@@ -1,5 +1,7 @@
 """현재 조사에서는 모델 선택만 검증하고, 설명은 관측 정책으로 구성한다."""
 
+from copy import deepcopy
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ops_agent.agent.claims import verified_claims
@@ -38,15 +40,8 @@ def decision_schema(state: dict, available: list[str]) -> dict:
         return legacy_validation.decision_schema(state, available)
     model = SampleModelChoice if state.get("version", 3) >= 5 else ModelChoice
     schema = model.model_json_schema()
-    if model is SampleModelChoice:
-        candidates = sample_candidates(state)
-        if SAMPLE_ACTION in allowed_actions(state, available) and candidates:
-            schema["$defs"]["LogSampleRequest"]["properties"]["evidence_id"]["enum"] = [
-                c["evidence_id"] for c in candidates
-            ]
-        else:
-            schema["properties"]["log_sample_request"] = {"type": "null"}
-    schema["properties"]["action"]["enum"] = allowed_actions(state, available)
+    actions = allowed_actions(state, available)
+    schema["properties"]["action"]["enum"] = actions
     ids = [c["claim_id"] for c in verified_claims(state)]
     if ids:
         schema["properties"]["claim_ids"].update(
@@ -54,7 +49,31 @@ def decision_schema(state: dict, available: list[str]) -> dict:
         )
     else:
         schema["properties"]["claim_ids"]["maxItems"] = 0
+    if model is SampleModelChoice:
+        if SAMPLE_ACTION in actions:
+            return sample_choice_schema(schema, sample_candidates(state))
+        schema["properties"]["log_sample_request"] = {"type": "null"}
     return schema
+
+
+def sample_choice_schema(schema: dict, candidates: list[dict]) -> dict:
+    """행동과 인자를 함께 제한해 null 인자와 다른 근거의 cursor 조합을 막는다."""
+    definitions = schema.pop("$defs")
+    request_schema = definitions["LogSampleRequest"]
+    requests = []
+    for candidate in candidates:
+        request = deepcopy(request_schema)
+        request["properties"]["evidence_id"]["enum"] = [candidate["evidence_id"]]
+        request["properties"]["cursor"]["enum"] = [candidate["cursor"]]
+        requests.append(request)
+    definitions["LogSampleRequest"] = {"anyOf": requests}
+    sample = deepcopy(schema)
+    sample["properties"]["action"]["enum"] = [SAMPLE_ACTION]
+    sample["properties"]["log_sample_request"] = {"$ref": "#/$defs/LogSampleRequest"}
+    sample["required"].append("log_sample_request")
+    schema["properties"]["action"]["enum"].remove(SAMPLE_ACTION)
+    schema["properties"]["log_sample_request"] = {"type": "null"}
+    return {"$defs": definitions, "anyOf": [sample, schema]}
 
 
 def validate_decision(content: str, state: dict, available: list[str]) -> dict:

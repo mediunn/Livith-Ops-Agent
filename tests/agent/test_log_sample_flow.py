@@ -5,6 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from ops_agent.agent.budget import read_budget
@@ -84,14 +85,74 @@ def test_long_unicode_page_fits_model_context_without_changing_saved_samples(
 def test_schema_and_context_offer_only_valid_local_candidates(sample_state):
     state = sample_state
     schema = decision_schema(state, [SAMPLE_ACTION])
-    assert schema["properties"]["action"]["enum"] == [SAMPLE_ACTION, "finish"]
-    assert schema["$defs"]["LogSampleRequest"]["properties"]["evidence_id"]["enum"] == [
-        state["evidence"][-1]["evidence_id"]
-    ]
+    validator = Draft202012Validator(schema)
+    validator.check_schema(schema)
+    validator.validate(sample_choice(state))
+    validator.validate({"action": "finish", "claim_ids": []})
     context = build_context(state, [SAMPLE_ACTION])
     assert context["log_sample_candidates"][0]["cursor"] == 0
     assert context["log_sample_page"] is None
     assert context["scope"]["log_bodies_included"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["missing", "null", "cursor", "unknown", "limit", "finish_with_request"],
+)
+def test_generation_schema_rejects_invalid_sample_choices(sample_state, mutation):
+    choice = sample_choice(sample_state)
+    if mutation == "missing":
+        choice.pop("log_sample_request")
+    elif mutation == "null":
+        choice["log_sample_request"] = None
+    elif mutation == "cursor":
+        choice["log_sample_request"]["cursor"] = 5
+    elif mutation == "unknown":
+        choice["log_sample_request"]["evidence_id"] = "unknown"
+    elif mutation == "limit":
+        choice["log_sample_request"]["limit"] = 6
+    else:
+        choice["action"] = "finish"
+    validator = Draft202012Validator(decision_schema(sample_state, [SAMPLE_ACTION]))
+    assert not validator.is_valid(choice)
+
+
+def test_generation_schema_tracks_cursor_and_page_budget(sample_state):
+    read_page(sample_state)
+    validator = Draft202012Validator(decision_schema(sample_state, [SAMPLE_ACTION]))
+    assert not validator.is_valid(sample_choice(sample_state))
+    validator.validate(sample_choice(sample_state, cursor=5))
+    validator.validate(
+        {"action": "finish", "claim_ids": [], "log_sample_request": None}
+    )
+    read_page(sample_state, cursor=5)
+    validator = Draft202012Validator(decision_schema(sample_state, [SAMPLE_ACTION]))
+    assert not validator.is_valid(sample_choice(sample_state, cursor=10))
+    validator.validate({"action": "finish", "claim_ids": []})
+
+
+def test_generation_schema_keeps_each_cursor_with_its_source(sample_state):
+    state = sample_state
+    read_page(state)
+    state["evidence"][-1]["summary"]["possibly_truncated"] = True
+    case = deepcopy(read_json(CASES_PATH)["cases"][0])
+    case["warning_query_levels"] = {"warn": 2}
+    state["action"] = "warning_logs"
+    state["evidence"].append(asyncio.run(synthetic_collector(case)(state)))
+    # 첫 근거만 한 페이지 읽은 상태: logs cursor=5, warning_logs cursor=0.
+    logs_id, warnings_id = [e["evidence_id"] for e in state["evidence"][-2:]]
+    schema = decision_schema(state, [SAMPLE_ACTION])
+    ids = [
+        c["claim_id"] for c in build_context(state, [SAMPLE_ACTION])["verified_claims"]
+    ]
+    validator = Draft202012Validator(schema)
+    for source, cursor in [(logs_id, 5), (warnings_id, 0)]:
+        choice = sample_choice(state, cursor=cursor)
+        choice["claim_ids"] = ids
+        choice["log_sample_request"]["evidence_id"] = source
+        validator.validate(choice)
+        choice["log_sample_request"]["cursor"] = 5 - cursor
+        assert not validator.is_valid(choice)
 
 
 def test_new_investigation_reads_samples_then_queries_and_finishes(

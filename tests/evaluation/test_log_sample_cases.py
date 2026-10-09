@@ -106,6 +106,19 @@ def test_reference_actions_pass_full_graph_without_leaking_expectations(
     if case["id"] == "next_page_needed":
         assert "event=external_api_finished" not in json.dumps(contexts[3])
         assert "event=external_api_finished" in json.dumps(contexts[4])
+    # 실제 프롬프트·스키마를 포함한 입력 크기 처리 후에도 짧은 본문은 온전히 전달한다.
+    if case["id"] in {"first_page_sufficient", "next_page_needed"}:
+        target = next(
+            entry["line"]
+            for entry in case["log_entries"]
+            if "event=external_api_finished" in entry["line"]
+        )
+        assert any(
+            sample["line"] == target
+            for context in contexts
+            for sample in (context.get("log_sample_page") or {}).get("samples", [])
+        )
+        assert not any(c.get("log_sample_context_truncated") for c in contexts)
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c["id"])
