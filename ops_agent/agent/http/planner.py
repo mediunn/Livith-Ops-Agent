@@ -58,7 +58,7 @@ def decision_schema(context: dict) -> dict:
     evidence_ids = [e["evidence_id"] for e in context["observations"]]
 
     # 가설과 사용자 답변 모두 실제 근거 ID만 인용하도록 제한한다
-    for model_name in ("HTTPHypothesis", "HTTPAnswer"):
+    for model_name in ("HTTPHypothesis", "AgentAnswer"):
         field = schema["$defs"][model_name]["properties"]["evidence_ids"]
 
         if evidence_ids:

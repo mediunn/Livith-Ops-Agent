@@ -48,7 +48,18 @@ def mock_graph(monkeypatch, calls):
 
     async def choose(state, available, trace=None):
         reserve(state, "llm")
-        return decision("logs" if "logs" in available else "finish")
+        result = decision("logs" if "logs" in available else "finish")
+        if state.get("version", 3) >= 6:
+            result["answer"] = (
+                {
+                    "text": "수집한 관측과 확인 한계를 정리했습니다.",
+                    "evidence_ids": [e["evidence_id"] for e in state["evidence"]],
+                    "limitations": ["원인은 확인하지 않았습니다."],
+                }
+                if result["action"] == "finish"
+                else None
+            )
+        return result
 
     monkeypatch.setattr(nodes, "execute_tool", collect)
     monkeypatch.setattr(nodes, "choose_action", choose)

@@ -5,12 +5,14 @@
 외부 API 요청률·서비스 로그 조사와 HTTP 엔드포인트별 후속 조사를 지원합니다.
 Grafana MCP로 데이터를 읽고, LangGraph와 SQLite로 조사 상태를 저장합니다.
 HTTP 조사에서는 로컬 Ollama 모델이 후속 조회 대상·지표·구간 또는 종료를 선택합니다.
+공통 `ask` CLI는 질문을 조사 분야에 연결하며 HTTP·외부 API 모두 근거를 인용한 답변을 제공합니다.
+기본 출력은 답변이며 요청 시 같은 결과를 Markdown 보고서로 정리합니다.
 
 ## 지원 기능
 
 | 조사 | 수집 대상 | 판단 방식 |
 |---|---|---|
-| 외부 API | 현재·직전 요청률, 서비스 로그, 선택적 경고 문자열 로그 | 필수 조회와 관측 설명은 코드가 보장하고 모델은 허용된 조회·관측을 선택 |
+| 외부 API | 현재·직전 요청률, 서비스 로그, 선택적 경고 문자열 로그 | 필수 조회·관측 정책은 코드가 보장하고 모델은 후속 조회와 근거를 인용한 답변을 작성 |
 | HTTP | 메서드·엔드포인트별 요청률과 평균 지연 | 초기 두 조회 이후 모델이 후속 조회와 근거를 인용한 가설을 작성 |
 
 조회 조건별 캐시, 원본 응답 보존, 호출·시간 예산, 중단·재개를 지원합니다.
@@ -57,6 +59,12 @@ uv sync
 Ollama에 기본 모델을 준비합니다. HTTP 데이터소스와 job은 [config.py](ops_agent/config.py)에서 확인합니다.
 
 ```bash
+# 질문을 HTTP 또는 외부 API 조사로 연결
+uv run python -m ops_agent.cli.ask --question '최근 30분 외부 API 요청률과 관련 로그 확인'
+
+# 같은 결과를 Markdown 보고서로 출력·저장
+uv run python -m ops_agent.cli.ask --question '외부 API 요청률 확인' --output report
+
 # HTTP 조사
 uv run python -m ops_agent.cli.run_http_agent \
   --symptom '/api/v7/recommendation//concerts 평균 지연이 직전 구간보다 증가했는지 확인'

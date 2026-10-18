@@ -78,7 +78,10 @@ async def choose(state, available, trace=None):
     reserve(state, 'llm')
     from ops_agent.persistence.artifacts import save_json
     save_json(root / 'planner-context.json', build_context(state, available))
-    return dict(action='logs' if 'logs' in available else ('previous_metrics' if 'previous_metrics' in available else 'finish'), rationale='test', assessment='insufficient_evidence', hypotheses=[], limitations=['test'], next_checks=['test'])
+    result = dict(action='logs' if 'logs' in available else ('previous_metrics' if 'previous_metrics' in available else 'finish'), rationale='test', assessment='insufficient_evidence', hypotheses=[], limitations=['test'], next_checks=['test'])
+    if state.get('version', 3) >= 6:
+        result['answer'] = dict(text='필수 관측을 확인했습니다.', evidence_ids=[e['evidence_id'] for e in state['evidence']], limitations=['원인은 미확인입니다.']) if result['action'] == 'finish' else None
+    return result
 nodes.execute_tool=tool
 nodes.choose_action=choose
 sys.argv=['ops_agent.cli.run_agent', *sys.argv[2:]]

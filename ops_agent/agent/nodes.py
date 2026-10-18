@@ -2,7 +2,10 @@ from pathlib import Path
 
 from ops_agent.agent.budget import BudgetExceeded, read_budget, remaining_seconds
 from ops_agent.agent.decision.planner import ContextTooLarge, choose_action
-from ops_agent.agent.decision.validation import DecisionValidationError
+from ops_agent.agent.decision.validation import (
+    DecisionValidationError,
+    validate_model_answer,
+)
 from ops_agent.agent.log_samples import (
     SAMPLE_ACTION,
     sample_candidates,
@@ -47,6 +50,13 @@ class AgentNodes:
                 return {"stop_reason": "required_checks_unavailable"}
         try:
             decision = await choose_action(state, available, trace=self.trace)
+            if state.get("version", 3) >= 6:
+                decision["answer"] = validate_model_answer(
+                    decision["action"], decision.get("answer"), state
+                )
+                decision["evidence_considered"] = [
+                    e["evidence_id"] for e in state["evidence"]
+                ]
         except BudgetExceeded as exc:
             return {"stop_reason": str(exc)}
         except ContextTooLarge:

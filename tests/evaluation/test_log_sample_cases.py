@@ -79,6 +79,12 @@ def test_reference_actions_pass_full_graph_without_leaking_expectations(
                 "cursor": selection[0],
                 "limit": selection[1],
             }
+        if action == "finish":
+            result["answer"] = {
+                "text": "제공된 관측과 요청한 로그 기록을 확인했습니다.",
+                "evidence_ids": [e["evidence_id"] for e in context["evidence"]],
+                "limitations": ["반환된 로그 범위에 한정한 확인입니다."],
+            }
         return result
 
     outputs = [lambda: choice("previous_metrics"), lambda: choice("logs")]

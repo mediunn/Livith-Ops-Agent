@@ -110,6 +110,24 @@ def test_disabled_trace_has_no_client(record):
     assert record["telemetry"]["status"] == "disabled"
 
 
+def test_user_answer_body_is_local_and_omitted_from_trace(record, monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(obs, "configured_client", lambda: client)
+    record["report"] = {
+        "status": "completed",
+        "answer": {
+            "text": "LOCAL_ANSWER_BODY",
+            "evidence_ids": ["e1"],
+            "limitations": [],
+        },
+    }
+    trace = obs.ReportTrace(record)
+    trace.finish()
+    assert record["report"]["answer"]["text"] == "LOCAL_ANSWER_BODY"
+    assert "LOCAL_ANSWER_BODY" not in json.dumps(client.root.updates)
+    assert client.root.updates[-1]["output"]["report"]["answer_content_omitted"] is True
+
+
 def test_missing_configuration_does_not_raise(record, monkeypatch):
     monkeypatch.setenv("OPS_LANGFUSE_ENABLED", "true")
     monkeypatch.setattr(obs, "load_dotenv", lambda *args: None)

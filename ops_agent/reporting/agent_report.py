@@ -156,4 +156,18 @@ def build_report(state: dict) -> dict:
                 ],
             },
         )
+    if state.get("version", 3) >= 6:
+        considered = set(last.get("evidence_considered", [])) if last else set()
+        report.update(
+            report_version="agent-report-v6",
+            answer=final_decision.get("answer") if final_decision else None,
+            answer_source="model"
+            if final_decision and final_decision.get("answer")
+            else None,
+            unreviewed_evidence_ids=[
+                e["evidence_id"]
+                for e in state["evidence"]
+                if e["evidence_id"] not in considered
+            ],
+        )
     return report

@@ -180,12 +180,16 @@ class ReportTrace:
         self.end_generation(error_type)
         if self.root is None:
             return
+        report = self.record["report"]
+        if isinstance(report, dict) and report.get("answer") is not None:
+            # 새 답변은 로그 발췌를 재서술할 수 있으므로 본문을 외부 추적에 보내지 않는다.
+            report = {**report, "answer": None, "answer_content_omitted": True}
         self.safe(
             "trace_output",
             lambda: self.root.update(
                 output={
                     "status": self.record["status"],
-                    "report": self.record["report"],
+                    "report": report,
                 },
                 metadata={
                     **self.metadata,

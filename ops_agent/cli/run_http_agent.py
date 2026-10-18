@@ -3,7 +3,6 @@
 import argparse
 import asyncio
 import fcntl
-import json
 import re
 import sys
 from uuid import uuid4
@@ -12,6 +11,7 @@ from zoneinfo import ZoneInfoNotFoundError
 from ops_agent.agent.http.graph import initial_state
 from ops_agent.agent.http.session import run
 from ops_agent.agent.request import DEFAULT_TIMEZONE
+from ops_agent.cli.presentation import print_result
 from ops_agent.cli.query_http import queries_from_args
 from ops_agent.config import HTTP_AGENT_ROOT
 
@@ -35,9 +35,9 @@ def main():
     parser.add_argument("--tool-calls", type=int)
     parser.add_argument(
         "--output",
-        choices=["answer", "json"],
+        choices=["answer", "json", "report"],
         default="answer",
-        help="사용자 답변 또는 전체 JSON 출력",
+        help="사용자 답변, 전체 JSON 또는 Markdown 보고서 출력",
     )
     args = parser.parse_args()
     fields = (
@@ -97,29 +97,7 @@ def main():
             return 130
         except (ValueError, OSError) as exc:
             parser.error(str(exc))
-    if args.output == "json":
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-    elif result["status"] == "paused":
-        print("조사를 저장하고 일시 중단했습니다.")
-
-    elif answer := result.get("answer"):
-        print(answer["text"])
-        if result["status"] == "incomplete":
-            print(f"\n조사 미완료: {result['stop_reason']}")
-
-        if answer["evidence_ids"]:
-            print("\n근거: " + ", ".join(answer["evidence_ids"]))
-
-        if answer["limitations"]:
-            print("\n확인 한계:")
-            for limitation in answer["limitations"]:
-                print(f"- {limitation}")
-
-    else:
-        print("사용자 답변이 생성되지 않았습니다.")
-        print(f"종료 사유: {result.get('stop_reason', 'unknown')}")
-        print(f"저장된 근거: {len(result.get('facts', []))}건")
-        print(f"전체 결과: {directory / 'report.json'}")
+    print_result(result, output=args.output, directory=directory)
     if result["status"] == "paused":
         print(
             f"재개: uv run python -m ops_agent.cli.run_http_agent --resume {directory.name}",

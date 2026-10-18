@@ -12,11 +12,14 @@ HTTP_AGENT_ROOT = ARTIFACTS_DIR / "http-agent"
 HTTP_AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "http_agent_v2.txt"
 OLLAMA_HOST = "http://127.0.0.1:11434"
 
-AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "ops_agent_v10.txt"
+AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "ops_agent_v11.txt"
 REPORT_PROMPT_DIR = PROJECT_DIR / "prompts" / "report"
 
-PROMPT_VERSION = "ops_agent_v10"
-STATE_VERSION = 5
+PROMPT_VERSION = "ops_agent_v11"
+STATE_VERSION = 6
+
+REQUEST_ROOT = ARTIFACTS_DIR / "requests"
+ROUTING_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "routing_v1.txt"
 
 NUM_CTX = 16384
 NUM_PREDICT = 1024

@@ -297,7 +297,7 @@ def test_answer_schema_limits_references_to_visible_observations(
     schema = planners.decision_schema(context)
     expected_ids = [e["evidence_id"] for e in context["observations"]]
     assert "answer" in schema["required"]
-    for name in ("HTTPHypothesis", "HTTPAnswer"):
+    for name in ("HTTPHypothesis", "AgentAnswer"):
         field = schema["$defs"][name]["properties"]["evidence_ids"]
         if expected_ids:
             assert field["items"]["enum"] == expected_ids

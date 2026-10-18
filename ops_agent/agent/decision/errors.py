@@ -1,6 +1,10 @@
 """버전 간 공통 판단 오류 코드. 입력값을 진단 문자열에 복사하지 않는다."""
 
 ERROR_MESSAGES = {
+    "answer_before_finish": "finish 이외의 행동에는 answer를 null로 지정하세요.",
+    "missing_answer": "finish에는 text, evidence_ids, limitations를 담은 answer 객체가 필요합니다.",
+    "missing_answer_evidence": "답변에서 사용한 실제 근거 ID를 evidence_ids에 인용하세요.",
+    "unknown_answer_evidence": "답변에는 현재 조사에서 제공한 관측 근거 ID만 인용하세요.",
     "invalid_log_sample_request": "log_sample_candidates에 있는 근거 ID와 다음 cursor, 1~5의 limit을 선택하세요.",
     "unexpected_log_sample_request": "get_log_samples 이외의 행동에는 log_sample_request를 생략하거나 null로 지정하세요.",
     "required_checks_missing": "필수 조회가 남아 있어 종료할 수 없습니다. missing_required_checks를 확인하세요.",

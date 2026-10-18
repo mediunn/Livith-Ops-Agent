@@ -71,10 +71,17 @@ def test_full_eval_graph_runs_planner_and_keeps_expected_out_of_input(
 ):
     def select(action):
         context = json.loads(calls[-1]["messages"][1]["content"])
-        return {
+        result = {
             "action": action,
             "claim_ids": [c["claim_id"] for c in context["verified_claims"]],
         }
+        if action == "finish":
+            result["answer"] = {
+                "text": "반환된 외부 API 요청률과 로그 관측을 확인했습니다.",
+                "evidence_ids": [e["evidence_id"] for e in context["evidence"]],
+                "limitations": ["원인과 서비스 정상 여부는 확인하지 않았습니다."],
+            }
+        return result
 
     calls = fake_model(
         monkeypatch,

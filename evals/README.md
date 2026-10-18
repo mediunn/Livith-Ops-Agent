@@ -63,6 +63,11 @@ uv run python -m ops_agent.cli.evaluate_http_agent --planner llm \
 
 ## 외부 API 조사
 
+신규 외부 API v6는 관측 정책에 따른 분류와 별도로 모델 답변을 생성합니다. 자동 검사의
+`model_answer_present`와 `answer_references_valid`는 답변 존재·참조 유효성을 확인하며 내용의 정확성은 검사하지 않습니다.
+기존 `code_generated_narrative`는 코드 분류 필드의 검사이며 모델 답변 품질 점수가 아닙니다.
+공통 질문 라우팅은 모의 모델로 분야 선택·확인 질문·실패 시 도구 미호출을 회귀 검사하며 실제 모델의 분류 정확도는 별도 평가 대상입니다.
+
 ```bash
 uv run python -m ops_agent.cli.evaluate_agent
 ```

@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 from ops_agent.agent.budget import read_budget
+from ops_agent.agent.contracts import validate_answer_references
 from ops_agent.agent.http.state import HTTPDecision
 from ops_agent.persistence.artifacts import query_key
 from ops_agent.tools.http import HTTP_TOOLS, HTTPQuery, prepare_query
@@ -198,8 +199,8 @@ def validate_choice(value, state: dict) -> tuple[HTTPDecision, HTTPQuery | None]
     ):
         raise ValueError("missing_answer")
 
-    if decision.answer is not None and set(decision.answer.evidence_ids) - ids:
-        raise ValueError("unknown_answer_evidence")
+    if decision.answer is not None:
+        validate_answer_references(decision.answer, ids)
 
     for hypothesis in decision.hypotheses:
         if set(hypothesis.evidence_ids) - ids:

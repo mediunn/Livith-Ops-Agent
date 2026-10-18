@@ -1,7 +1,7 @@
 """SQLite 조사 세션을 열고 실행별 추적·결과 파일을 관리한다."""
 
 import hashlib
-import json
+import sys
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -11,6 +11,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from ops_agent.agent.budget import initialize_budget
 from ops_agent.agent.graph import build_graph
 from ops_agent.agent.request import request_from_args
+from ops_agent.cli.presentation import print_result
 from ops_agent.config import (
     AGENT_PROMPT_PATH,
     AGENT_ROOT,
@@ -57,26 +58,41 @@ def initial_state(args, thread_id: str) -> dict:
     }
 
 
-def display(state: dict, pending) -> None:
-    print(f"Thread ID: {state['thread_id']}")
-    print(f"다음 노드: {list(pending)}")
-    print(f"근거 수: {len(state['evidence'])}, 모델 판단 수: {len(state['decisions'])}")
-    print(f"결과 폴더: {state['directory']}")
-    display_request(state)
-    if state.get("report"):
-        print(json.dumps(state["report"], ensure_ascii=False, indent=2))
+def display(state: dict, pending, *, output="answer") -> None:
+    stream = sys.stderr if output == "json" else sys.stdout
+    print(f"Thread ID: {state['thread_id']}", file=stream)
+    print(f"다음 노드: {list(pending)}", file=stream)
+    print(
+        f"근거 수: {len(state['evidence'])}, 모델 판단 수: {len(state['decisions'])}",
+        file=stream,
+    )
+    print(f"결과 폴더: {state['directory']}", file=stream)
+    display_request(state, file=stream)
+    result = state.get("report") or {
+        "status": "paused",
+        "thread_id": state["thread_id"],
+        "next_nodes": list(pending),
+    }
+    print_result(result, output=output, directory=Path(state["directory"]))
 
 
-def display_request(state: dict) -> None:
+def display_request(state: dict, *, file=None) -> None:
     request = state["request"]
     print(
         f"조사 대상: {request['service']} / "
-        f"{request['environment']} / {request['investigation_type']}"
+        f"{request['environment']} / {request['investigation_type']}",
+        file=file,
     )
-    print(f"조회 구간(UTC): {state['window']['start']} ~ {state['window']['end']}")
-    print(f"직전 구간 비교 필수: {request.get('compare_previous', '이전 요청에 없음')}")
-    print(f"입력 해석 시간대: {request['timezone']}")
-    print(f"기본값 적용: {', '.join(request['defaults_applied']) or '없음'}")
+    print(
+        f"조회 구간(UTC): {state['window']['start']} ~ {state['window']['end']}",
+        file=file,
+    )
+    print(
+        f"직전 구간 비교 필수: {request.get('compare_previous', '이전 요청에 없음')}",
+        file=file,
+    )
+    print(f"입력 해석 시간대: {request['timezone']}", file=file)
+    print(f"기본값 적용: {', '.join(request['defaults_applied']) or '없음'}", file=file)
 
 
 def result_code(state: dict) -> int:
@@ -86,7 +102,9 @@ def result_code(state: dict) -> int:
 
 async def run(args) -> int:
     existing_id = args.resume or args.status
-    thread_id = existing_id or uuid4().hex
+    thread_id = existing_id or getattr(args, "thread_id", None) or uuid4().hex
+    output = getattr(args, "output", "answer")
+    stream = sys.stderr if output == "json" else sys.stdout
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 40}
     async with AsyncSqliteSaver.from_conn_string(str(CHECKPOINT_DB)) as saver:
         graph = build_graph(saver)
@@ -95,15 +113,15 @@ async def run(args) -> int:
             if not snapshot.values:
                 raise ValueError("해당 ID의 저장된 조사가 없습니다.")
             state = dict(snapshot.values)
-            if state.get("version") not in {4, STATE_VERSION}:
+            if state.get("version") not in {4, 5, STATE_VERSION}:
                 raise ValueError("이전 구조의 상태입니다. 새 조사를 시작하세요.")
             if args.status:
-                display(state, snapshot.next)
+                display(state, snapshot.next, output=output)
                 return 0
             if not snapshot.next:
                 if state.get("report"):
                     save_json(Path(state["directory"]) / "report.json", state["report"])
-                display(state, snapshot.next)
+                display(state, snapshot.next, output=output)
                 return result_code(state)
             if not (Path(state["directory"]) / "budget.json").exists():
                 raise ValueError("예산 파일이 없어 재개할 수 없습니다.")
@@ -140,9 +158,9 @@ async def run(args) -> int:
             name="ops-agent",
         )
         graph = build_graph(saver, trace=trace)
-        print(f"Thread ID: {thread_id}", flush=True)
-        print(f"결과 폴더: {state['directory']}", flush=True)
-        display_request(state)
+        print(f"Thread ID: {thread_id}", flush=True, file=stream)
+        print(f"결과 폴더: {state['directory']}", flush=True, file=stream)
+        display_request(state, file=stream)
         try:
             await graph.ainvoke(
                 graph_input,
@@ -164,10 +182,11 @@ async def run(args) -> int:
                 record["error"] = {"type": state["error_type"]}
             if state.get("report"):
                 save_json(Path(state["directory"]) / "report.json", state["report"])
-            display(state, snapshot.next)
+            display(state, snapshot.next, output=output)
             if paused:
                 print(
-                    f"\n재개: uv run python -m ops_agent.cli.run_agent --resume {thread_id}"
+                    f"\n재개: uv run python -m ops_agent.cli.run_agent --resume {thread_id}",
+                    file=stream,
                 )
             return 0 if paused else result_code(state)
         except BaseException as exc:
@@ -181,4 +200,4 @@ async def run(args) -> int:
                 Path(state["directory"]) / f"invocation-{invocation_id}.json", record
             )
             if url := record["telemetry"].get("trace_url"):
-                print(f"Langfuse: {url}")
+                print(f"Langfuse: {url}", file=stream)

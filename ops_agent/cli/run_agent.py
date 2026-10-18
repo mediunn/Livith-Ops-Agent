@@ -35,6 +35,9 @@ def main() -> int:
     parser.add_argument("--symptom")
     parser.add_argument("--model", choices=MODELS)
     parser.add_argument(
+        "--output", choices=["answer", "json", "report"], default="answer"
+    )
+    parser.add_argument(
         "--seconds", type=int, help="새 조사 실행 예산. 기본 90초, 중단 시간도 포함"
     )
     parser.add_argument(

@@ -195,6 +195,17 @@ def evaluate_state(state: dict, expected: dict) -> dict:
         )
     if "log_samples" in expected:
         checks.update(evaluate_log_samples(state, expected["log_samples"]))
+    if state.get("version", 3) >= 6:
+        answer = report.get("answer") or {}
+        evidence_ids = {e["evidence_id"] for e in state["evidence"]}
+        checks["model_answer_present"] = (
+            completed
+            and report.get("answer_source") == "model"
+            and bool(answer.get("text"))
+        )
+        checks["answer_references_valid"] = bool(answer.get("evidence_ids")) and set(
+            answer["evidence_ids"]
+        ).issubset(evidence_ids)
     return {
         "checks": checks,
         "automatic_pass": all(checks.values()),

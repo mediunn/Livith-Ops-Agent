@@ -6,6 +6,34 @@
 `GRAFANA_SERVICE_ACCOUNT_TOKEN`이 필요합니다. 기본 Ollama 주소는 `http://127.0.0.1:11434`입니다.
 HTTP 데이터소스·job과 Ollama 주소는 [config.py](../ops_agent/config.py)에서 설정합니다.
 
+## 공통 질문 진입점
+
+```bash
+uv run python -m ops_agent.cli.ask --question '최근 30분 외부 API 요청률과 관련 로그 확인'
+uv run python -m ops_agent.cli.ask --question '/api/v7/recommendation//concerts 평균 지연 비교'
+uv run python -m ops_agent.cli.ask --question '외부 API 요청률 확인' --output report
+```
+
+로컬 모델이 `http` 또는 `external_api`를 선택하며, 모호하거나 지원하지 않는 요청은 관측 도구를
+실행하기 전에 확인 질문 또는 지원 범위 안내로 응답합니다. 한 질문에서 한 분야를 조사하며 후속 대화는 아직 연결하지 않습니다.
+질문에서 보고서를 요청하면 보고서로 출력하고 명시한 `--output answer|json|report`가 있으면 이를 우선합니다.
+`report`는 확보한 답변·확인 한계·근거 목록을 출력하고 조사 폴더의 `report.md`에 저장합니다.
+완료된 조사를 분야별 CLI의 `--resume ID --output report`로 열어도 모델이나 도구를 다시 실행하지 않습니다.
+
+`--domain`으로 분야를 지정하고 `--route`·`--method`로 정확한 HTTP 라벨을 지정할 수 있습니다.
+별칭을 실제 route로 추측하지 않으며 질문의 `/...` 문자열 또는 명시적 옵션을 사용합니다.
+명확한 최근 N분/시간은 상대 구간으로 해석하고 절대 구간은 `--start`·`--end`와 `--timezone`으로 지정합니다.
+기본 구간은 최근 30분입니다. 명시적 옵션이 모델 해석보다 우선하며 분야별 최대 구간을 적용합니다.
+`--compare-previous` / `--no-compare-previous` 옵션은 외부 API의 필수 비교 설정 전용입니다.
+
+공통 CLI의 전체 실행 예산은 `--seconds`(기본 180초)이며 라우팅 시간을 포함합니다.
+라우팅은 최대 2회, 호출당 최대 45초의 로컬 모델 호출을 사용하고 관측 도구는 호출하지 않습니다.
+라우팅 예산·원문·분야 선택·조사 ID는 `artifacts/requests/<request_id>/`에 저장하며 분야별 예산과 구분합니다.
+선택·검증에 실패해도 다른 분야를 자동으로 실행하지 않습니다. `--step` 이후에는 출력된 분야별 명령으로 재개합니다.
+
+기존 HTTP 초기 두 지표와 외부 API 필수 지표·로그 조회는 유지합니다. 요청에 따른 최초 조회 최소화와
+복합 분야 조사는 현재 지원 범위 밖입니다. 라우팅·답변 계약은 모의 모델·합성 관측으로 검사하며 실제 모델의 해석 품질과 구분합니다.
+
 ## HTTP 조사
 
 ```bash
@@ -32,7 +60,7 @@ uv run python -m ops_agent.cli.run_http_agent --resume THREAD_ID
 | `--seconds` | 조사 실행 예산 180초, 1~3,600초 |
 | `--llm-seconds` | 모델 호출당 45초, 1~180초. 남은 조사 시간을 함께 적용 |
 | `--tool-calls` | 초기 두 조회를 포함해 6회, 2~10회 |
-| `--output` | `answer`(기본) 또는 전체 조사 결과인 `json` |
+| `--output` | `answer`(기본), 전체 결과 `json`, Markdown 보고서 `report` |
 
 정상적인 `--step` 중단 시간은 HTTP 실행 예산에서 제외합니다. 재개할 때는 저장된 설정을
 사용하므로 새 모델·대상·예산 옵션을 함께 지정할 수 없습니다. 실행·재개 한 번에 MCP 세션 하나를 공유합니다.
@@ -117,7 +145,9 @@ uv run python -m ops_agent.cli.run_agent --resume THREAD_ID
 이는 샘플을 모델에 전달하는 기능이며 로그 원인 분석의 정확성을 보장하지 않습니다.
 
 외부 API의 시간 예산은 기본 90초이며 **중단 시간도 포함**합니다. 재개·상태 확인에는
-저장된 설정을 사용합니다. 신규 상태 버전은 v5이며 기존 v4 조사도 기존 행동 범위로 재개합니다.
+저장된 설정을 사용합니다. 신규 상태·보고서 버전은 v6이며 기존 v4·v5 조사도 저장된 프롬프트와 행동 범위로 재개합니다.
+v6는 종료 판단과 함께 `answer`(답변·실제 근거 ID·확인 한계)를 작성합니다.
+두 분야는 같은 답변 계약과 `--output answer|json|report` 표현을 사용합니다. 기존 v4·v5 결과에는 모델 답변이 없을 수 있습니다.
 결과는 `artifacts/agent/<thread_id>/`에 저장합니다.
 
 ## 고정 수집·보고서
