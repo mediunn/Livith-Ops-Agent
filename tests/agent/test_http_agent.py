@@ -6,12 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from ops_agent.agent.budget import read_budget
+from ops_agent.agent.budget import read_budget, reserve
 from ops_agent.agent.http import planner as planners
 from ops_agent.agent.http.context import context_and_queries, identity, validate_choice
 from ops_agent.agent.http.graph import HTTPNodes, initial_state
 from ops_agent.agent.http.session import run
 from ops_agent.agent.http.state import HTTPDecision
+from ops_agent.config import TOKEN_RESERVATION
 from ops_agent.evaluation.http_agent import (
     CASES,
     SCOPE,
@@ -53,6 +54,19 @@ def choose(
     )
 
 
+def finish_reply(text="확보한 근거로 조사를 마쳤습니다.", evidence_ids=(), **updates):
+    return {
+        "action": "finish",
+        "rationale": "확보한 근거와 확인 한계를 정리해 종료한다.",
+        "answer": {
+            "text": text,
+            "evidence_ids": list(evidence_ids),
+            "limitations": ["조회한 지표만으로 원인을 확정할 수 없습니다."],
+        },
+        **updates,
+    }
+
+
 def test_choices_change_actual_queries_and_hypothesis_can_be_rejected(state):
     async def planner(active, context):
         latency = [e for e in active["evidence"] if e["action"] == "http_mean_latency"]
@@ -66,11 +80,12 @@ def test_choices_change_actual_queries_and_hypothesis_can_be_rejected(state):
             return choose(context).model_copy(
                 update={"hypotheses": []}
             ).model_dump() | {"hypotheses": [hypothesis]}
-        return {
-            "action": "finish",
-            "rationale": "두 구간 모두 800ms라 증가 가설을 기각한다.",
-            "hypotheses": [hypothesis],
-        }
+        return finish_reply(
+            "두 구간의 평균 지연이 모두 800ms로 증가가 확인되지 않았습니다.",
+            [e["evidence_id"] for e in latency],
+            rationale="두 구간 모두 800ms라 증가 가설을 기각한다.",
+            hypotheses=[hypothesis],
+        )
 
     report = asyncio.run(
         run(
@@ -89,6 +104,14 @@ def test_choices_change_actual_queries_and_hypothesis_can_be_rejected(state):
     ]
     assert report["interpretation"]["unreviewed_evidence_ids"] == []
     assert score(CASES[2], report)["hypothesis_status_match"]
+    assert "증가가 확인되지 않았습니다" in report["answer"]["text"]
+    assert (
+        report["answer"]["evidence_ids"]
+        == report["interpretation"]["hypotheses"][0]["evidence_ids"]
+    )
+    directory = Path(state["directory"])
+    assert read_json(directory / "report.json")["answer"] == report["answer"]
+    assert asyncio.run(run(directory)) == report
 
 
 def test_new_evidence_and_query_purpose_survive_sqlite_resume(state):
@@ -128,7 +151,9 @@ def test_new_evidence_and_query_purpose_survive_sqlite_resume(state):
             e["evidence_id"] for e in active["evidence"]
         }
         # Presentation alone must not force a hypothesis or another query.
-        return HTTPDecision(action="finish", rationale="모델이 종료를 선택한다.")
+        return HTTPDecision.model_validate(
+            finish_reply(evidence_ids=[e["evidence_id"] for e in active["evidence"]])
+        )
 
     executor = fixture_executor(CASES[2])
     for index in range(3):
@@ -146,6 +171,9 @@ def test_new_evidence_and_query_purpose_survive_sqlite_resume(state):
     assert report["status"] == "completed"
     assert len(contexts) == 2
     assert report["interpretation"]["hypotheses"] == []
+    assert report["answer"]["evidence_ids"] == [
+        e["evidence_id"] for e in report["facts"]
+    ]
 
 
 def test_last_query_result_is_matched_by_arguments_not_metric(state):
@@ -212,6 +240,105 @@ def test_bad_decisions_rejected_before_tool_io(state, update):
     assert read_budget(state)["tool_calls"] == 2
 
 
+@pytest.mark.parametrize(
+    "case,error",
+    [
+        ("missing", "missing_answer"),
+        ("unknown_evidence", "unknown_answer_evidence"),
+        ("query_answer", "answer_before_finish"),
+    ],
+)
+def test_answer_contract_rejected_before_tool_io(state, case, error):
+    asyncio.run(seed(state))
+    reply = finish_reply(evidence_ids=[state["evidence"][0]["evidence_id"]])
+    if case == "missing":
+        del reply["answer"]
+    elif case == "unknown_evidence":
+        reply["answer"]["evidence_ids"] = ["invented"]
+    else:
+        reply = choose(context_and_queries(state)[0]).model_dump() | {
+            "answer": reply["answer"]
+        }
+    before = read_budget(state)
+    with pytest.raises(ValueError, match=error):
+        validate_choice(reply, state)
+    assert read_budget(state) == before
+
+
+def test_finish_accepts_answer_with_actual_evidence(state):
+    asyncio.run(seed(state))
+    ids = [e["evidence_id"] for e in state["evidence"]]
+    decision, query = validate_choice(finish_reply(evidence_ids=ids), state)
+    assert query is None
+    assert decision.answer.evidence_ids == ids
+
+
+def test_rule_finish_does_not_require_model_answer(state):
+    asyncio.run(seed(state))
+    state["planner_kind"] = "rules"
+    decision, query = validate_choice(
+        {"action": "finish", "rationale": "규칙 비교를 마쳤다."}, state
+    )
+    assert query is None and decision.answer is None
+
+
+def test_whitespace_only_answer_is_rejected(state):
+    with pytest.raises(ValueError):
+        validate_choice(finish_reply(text=" \n\t "), state)
+
+
+@pytest.mark.parametrize("with_observations", [True, False])
+def test_answer_schema_limits_references_to_visible_observations(
+    state, with_observations
+):
+    if with_observations:
+        asyncio.run(seed(state))
+    context, _ = context_and_queries(state)
+    schema = planners.decision_schema(context)
+    expected_ids = [e["evidence_id"] for e in context["observations"]]
+    assert "answer" in schema["required"]
+    for name in ("HTTPHypothesis", "HTTPAnswer"):
+        field = schema["$defs"][name]["properties"]["evidence_ids"]
+        if expected_ids:
+            assert field["items"]["enum"] == expected_ids
+        else:
+            assert field["maxItems"] == 0
+            assert "enum" not in field["items"]
+    if not with_observations:
+        assert schema["properties"]["endpoint_id"] == {"type": "null"}
+
+
+def test_v1_checkpoint_is_rejected_without_more_collection(state):
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    from ops_agent.agent.http.graph import build_graph
+
+    directory = Path(state["directory"])
+    executor = fixture_executor(CASES[0])
+    asyncio.run(run(directory, state, step=True, tool_executor=executor))
+
+    async def restore_old_version():
+        async with AsyncSqliteSaver.from_conn_string(
+            str(directory / "checkpoints.sqlite")
+        ) as saver:
+            graph = build_graph(saver, planner=None, tool_executor=executor)
+            await graph.aupdate_state(
+                {"configurable": {"thread_id": directory.name}},
+                {"contract_version": "http-agent-v1"},
+            )
+
+    asyncio.run(restore_old_version())
+    before = read_budget(state)
+
+    async def must_not_collect(*args):
+        pytest.fail("unsupported checkpoints must not collect data")
+
+    with pytest.raises(ValueError, match="지원하지 않는 HTTP 조사 상태"):
+        asyncio.run(run(directory, tool_executor=must_not_collect))
+    assert read_budget(state) == before
+    assert not (directory / "report.json").exists()
+
+
 def test_execution_boundary_rejects_scope_change_and_duplicates(state):
     asyncio.run(seed(state))
     nodes = HTTPNodes(None, tool_executor=lambda *args: pytest.fail("must not call"))
@@ -252,10 +379,16 @@ def test_no_data_finishes_without_planner_even_at_tool_limit(state):
     assert report["budget"]["llm_calls"] == 0
 
 
-def test_budget_exhaustion_marks_unreviewed_observations(state):
+@pytest.mark.parametrize("exhausted", ["llm", "token"])
+def test_budget_exhaustion_marks_unreviewed_observations(state, exhausted):
     state["limits"]["tool_calls"] = 3
+    if exhausted == "llm":
+        state["limits"]["llm_calls"] = 1
+    else:
+        state["limits"]["reserved_tokens"] = TOKEN_RESERVATION
 
     async def planner(active, context):
+        reserve(active, "llm")
         return choose(context)
 
     report = asyncio.run(
@@ -266,15 +399,208 @@ def test_budget_exhaustion_marks_unreviewed_observations(state):
             tool_executor=fixture_executor(CASES[0]),
         )
     )
+    assert report["stop_reason"] == f"{exhausted}_budget"
+    assert report["status"] == "incomplete"
+    assert report["budget"]["tool_calls"] == 3
+    assert report["budget"]["llm_calls"] == 1
+    assert len(report["decisions"]) == 1
+    assert report["interpretation"]["unreviewed_evidence_ids"] == [
+        report["facts"][-1]["evidence_id"]
+    ]
+    assert report["answer"] is None
+
+
+@pytest.mark.parametrize(
+    "resume,repair_finish", [(False, False), (True, False), (False, True)]
+)
+def test_tool_budget_allows_final_review_without_more_queries(
+    state, monkeypatch, resume, repair_finish
+):
+    state["limits"]["tool_calls"] = 3
+    calls = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def chat(self, **kwargs):
+            context = json.loads(kwargs["messages"][1]["content"])
+            calls.append(context)
+            if len(calls) == 1:
+                assert context["remaining_tool_calls"] == 1
+                payload = choose(context).model_dump(mode="json")
+            else:
+                assert context["remaining_tool_calls"] == 0
+                assert context["available_queries"] == []
+                assert context["finish_only_reason"] == "tool_budget"
+                assert kwargs["format"]["properties"]["action"]["enum"] == ["finish"]
+                if repair_finish and len(calls) == 2:
+                    # Simulate a model ignoring the finish-only schema.
+                    payload = choose(context).model_dump(mode="json")
+                else:
+                    payload = finish_reply(
+                        "직전 구간과 현재 구간의 평균 지연을 비교했습니다.",
+                        [e["evidence_id"] for e in context["observations"]],
+                    )
+                    payload["answer"]["limitations"].append(
+                        "추가 조회 한도에 도달했습니다."
+                    )
+            content = json.dumps(payload, ensure_ascii=False)
+            return SimpleNamespace(
+                done=True,
+                done_reason="stop",
+                prompt_eval_count=100,
+                eval_count=20,
+                message=SimpleNamespace(content=content),
+                model_dump=lambda **_: {"message": {"content": content}},
+            )
+
+    monkeypatch.setattr(planners, "AsyncClient", Client)
+    directory = Path(state["directory"])
+    executor = fixture_executor(CASES[0])
+    if resume:
+        for step in range(3):
+            paused = asyncio.run(
+                run(
+                    directory,
+                    state if step == 0 else None,
+                    step=True,
+                    planner=planners.llm_planner,
+                    tool_executor=executor,
+                )
+            )
+            assert paused["status"] == "paused"
+        assert paused["evidence_count"] == 3
+        assert len(calls) == 1
+    report = asyncio.run(
+        run(
+            directory,
+            None if resume else state,
+            planner=planners.llm_planner,
+            tool_executor=executor,
+        )
+    )
+    assert report["status"] == "incomplete"
+    assert report["stop_reason"] == "tool_budget"
+    assert report["budget"]["tool_calls"] == 3
+    assert report["budget"]["llm_calls"] == len(calls) == (3 if repair_finish else 2)
+    assert len(report["decisions"]) == 2
+    assert report["decisions"][-1]["action"] == "finish"
+    latest_id = report["facts"][-1]["evidence_id"]
+    assert calls[-1]["investigation_update"]["new_evidence_ids"] == [latest_id]
+    assert latest_id in report["answer"]["evidence_ids"]
+    assert report["interpretation"]["unreviewed_evidence_ids"] == []
+    assert read_json(directory / "report.json")["answer"] == report["answer"]
+    assert asyncio.run(run(directory)) == report
+
+
+def test_query_rejected_at_tool_limit_before_any_new_io(state):
+    asyncio.run(seed(state))
+    state["limits"]["tool_calls"] = 2
+    context, _ = context_and_queries(state)
+    before = read_budget(state)
+    with pytest.raises(ValueError, match="query_after_tool_budget"):
+        validate_choice(choose(context), state)
+    assert read_budget(state) == before
+
+
+def test_injected_planner_cannot_query_after_tool_limit(state):
+    state["limits"]["tool_calls"] = 3
+    contexts = []
+
+    async def planner(active, context):
+        contexts.append(context)
+        return choose(context)
+
+    report = asyncio.run(
+        run(
+            Path(state["directory"]),
+            state,
+            planner=planner,
+            tool_executor=fixture_executor(CASES[0]),
+        )
+    )
+    assert contexts[-1]["finish_only_reason"] == "tool_budget"
+    assert report["status"] == "incomplete"
+    assert report["stop_reason"] == "decision_error"
+    assert report["budget"]["tool_calls"] == len(report["facts"]) == 3
+    assert len(report["decisions"]) == 1
+    assert report["answer"] is None
+    assert report["interpretation"]["unreviewed_evidence_ids"] == [
+        report["facts"][-1]["evidence_id"]
+    ]
+
+
+def test_rule_planner_can_finish_at_tool_limit_without_model_call(state):
+    state["planner_kind"] = "rules"
+    state["limits"]["tool_calls"] = 3
+    report = asyncio.run(
+        run(
+            Path(state["directory"]),
+            state,
+            planner=planners.rule_planner,
+            tool_executor=fixture_executor(CASES[0]),
+        )
+    )
     assert report["stop_reason"] == "tool_budget"
     assert report["status"] == "incomplete"
-    assert len(report["decisions"]) == 1
+    assert report["budget"]["tool_calls"] == 3
+    assert report["budget"]["llm_calls"] == 0
+    assert report["decisions"][-1]["action"] == "finish"
+    assert report["answer"] is None
+
+
+def test_time_budget_exhausted_before_final_review_keeps_latest_evidence_unreviewed(
+    state,
+):
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    from ops_agent.agent.http.graph import build_graph
+
+    state["limits"]["tool_calls"] = 3
+    directory = Path(state["directory"])
+    executor = fixture_executor(CASES[0])
+
+    async def planner(active, context):
+        reserve(active, "llm")
+        return choose(context)
+
+    async def must_not_plan(*args):
+        pytest.fail("no model call is allowed once execution time is exhausted")
+
+    async def investigate():
+        for step in range(3):
+            paused = await run(
+                directory,
+                state if step == 0 else None,
+                step=True,
+                planner=planner,
+                tool_executor=executor,
+            )
+            assert paused["status"] == "paused"
+        async with AsyncSqliteSaver.from_conn_string(
+            str(directory / "checkpoints.sqlite")
+        ) as saver:
+            graph = build_graph(saver, planner=planner, tool_executor=executor)
+            await graph.aupdate_state(
+                {"configurable": {"thread_id": directory.name}},
+                {"remaining_seconds": 0},
+            )
+        return await run(directory, planner=must_not_plan, tool_executor=executor)
+
+    report = asyncio.run(investigate())
+    assert report["stop_reason"] == "time_budget"
+    assert report["status"] == "incomplete"
+    assert report["budget"]["tool_calls"] == 3
+    assert report["budget"]["llm_calls"] == 1
+    assert report["answer"] is None
     assert report["interpretation"]["unreviewed_evidence_ids"] == [
         report["facts"][-1]["evidence_id"]
     ]
 
 
 def test_sqlite_resume_excludes_pause_and_preserves_evidence(state, monkeypatch):
+    state["planner_kind"] = "rules"
     state["limits"]["llm_seconds"] = 90
     directory = Path(state["directory"])
     executor = fixture_executor(CASES[0])
@@ -320,7 +646,7 @@ def test_deadline_and_invalid_planner_fail_closed(state):
 @pytest.mark.parametrize(
     "responses,expected_calls,error",
     [
-        ([{"action": "finish", "rationale": "충분한 근거"}], 1, None),
+        ([finish_reply()], 1, None),
         (
             [
                 {
@@ -330,7 +656,15 @@ def test_deadline_and_invalid_planner_fail_closed(state):
                     "window": "previous",
                     "rationale": "test",
                 },
-                {"action": "finish", "rationale": "재검토 후 종료"},
+                finish_reply(rationale="재검토 후 종료"),
+            ],
+            2,
+            None,
+        ),
+        (
+            [
+                {"action": "finish", "rationale": "답변을 누락한 종료"},
+                finish_reply(),
             ],
             2,
             None,

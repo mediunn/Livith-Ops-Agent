@@ -41,14 +41,30 @@ async def rule_planner(state: dict, context: dict) -> HTTPDecision:
 
 def decision_schema(context: dict) -> dict:
     schema = HTTPDecision.model_json_schema()
-    # 조회 인자 누락을 막되 finish에서는 null을 허용한다.
+
+    # answer를 포함한 모든 최상위 필드를 출력하도록 요구한다.
+    # query일 때 answer는 null이다.
     schema["required"] = list(schema["properties"])
-    schema["properties"]["endpoint_id"]["anyOf"][0]["enum"] = [
-        e["id"] for e in context["endpoints"]
-    ]
-    schema["$defs"]["HTTPHypothesis"]["properties"]["evidence_ids"]["items"]["enum"] = [
-        e["evidence_id"] for e in context["observations"]
-    ]
+    schema["properties"]["action"]["enum"] = (
+        ["finish"] if context.get("finish_only_reason") else ["query", "finish"]
+    )
+
+    endpoint_ids = [e["id"] for e in context["endpoints"]]
+    if endpoint_ids:
+        schema["properties"]["endpoint_id"]["anyOf"][0]["enum"] = endpoint_ids
+    else:
+        schema["properties"]["endpoint_id"] = {"type": "null"}
+
+    evidence_ids = [e["evidence_id"] for e in context["observations"]]
+
+    # 가설과 사용자 답변 모두 실제 근거 ID만 인용하도록 제한한다
+    for model_name in ("HTTPHypothesis", "HTTPAnswer"):
+        field = schema["$defs"][model_name]["properties"]["evidence_ids"]
+
+        if evidence_ids:
+            field["items"]["enum"] = evidence_ids
+        else:
+            field["maxItems"] = 0
     return schema
 
 
@@ -129,7 +145,9 @@ async def llm_planner(state: dict, context: dict) -> HTTPDecision:
             {
                 "role": "user",
                 "content": "스키마와 available_queries, 실제 evidence_id에 맞게 수정하세요. "
-                "finish는 조회 필드가 모두 null입니다. 새 근거는 없습니다.",
+                "query는 answer가 null입니다. finish는 조회 필드가 모두 null이고 "
+                "answer 객체(text, evidence_ids, limitations)가 필요합니다. "
+                "새 근거는 없습니다.",
             },
         ]
     raise AssertionError("unreachable")

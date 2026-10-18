@@ -12,7 +12,13 @@ from ollama import AsyncClient
 
 from ops_agent.agent.http.graph import initial_state
 from ops_agent.agent.http.session import run
-from ops_agent.config import NUM_CTX, NUM_PREDICT, OLLAMA_HOST, PROJECT_DIR
+from ops_agent.config import (
+    HTTP_AGENT_PROMPT_PATH,
+    NUM_CTX,
+    NUM_PREDICT,
+    OLLAMA_HOST,
+    PROJECT_DIR,
+)
 from ops_agent.evaluation.http_metrics import aggregate, call_metrics, classify
 from ops_agent.persistence.artifacts import save_json
 from ops_agent.tools.http import HTTPQuery, execute_http_query
@@ -199,7 +205,7 @@ async def evaluate(
         Path(__file__),
         PROJECT_DIR / "ops_agent/evaluation/http_metrics.py",
         PROJECT_DIR / "ops_agent/config.py",
-        PROJECT_DIR / "prompts/agent/http_agent_v1.txt",
+        HTTP_AGENT_PROMPT_PATH,
     ]
     metadata = {
         "created_at": datetime.now(UTC).isoformat(),

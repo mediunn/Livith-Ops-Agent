@@ -181,6 +181,26 @@ def validate_choice(value, state: dict) -> tuple[HTTPDecision, HTTPQuery | None]
     )
     _, candidates = context_and_queries(state)
     ids = {e["evidence_id"] for e in state["evidence"]}
+
+    if decision.action == "query" and decision.answer is not None:
+        raise ValueError("answer_before_finish")
+
+    if (
+        decision.action == "query"
+        and read_budget(state)["tool_calls"] >= state["limits"]["tool_calls"]
+    ):
+        raise ValueError("query_after_tool_budget")
+
+    if (
+        state["planner_kind"] == "llm"
+        and decision.action == "finish"
+        and decision.answer is None
+    ):
+        raise ValueError("missing_answer")
+
+    if decision.answer is not None and set(decision.answer.evidence_ids) - ids:
+        raise ValueError("unknown_answer_evidence")
+
     for hypothesis in decision.hypotheses:
         if set(hypothesis.evidence_ids) - ids:
             raise ValueError("unknown_evidence_id")

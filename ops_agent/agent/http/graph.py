@@ -122,8 +122,13 @@ class HTTPNodes:
         context, candidates = context_and_queries(state)
         if not candidates:
             return {"stop_reason": "no_candidates"}
-        if read_budget(state)["tool_calls"] >= state["limits"]["tool_calls"]:
-            return {"stop_reason": "tool_budget"}
+        finish_only = read_budget(state)["tool_calls"] >= state["limits"]["tool_calls"]
+        if finish_only:
+            context = {
+                **context,
+                "available_queries": [],
+                "finish_only_reason": "tool_budget",
+            }
         decision, query = validate_choice(await self.planner(state, context), state)
         record = {
             **decision.model_dump(mode="json"),
@@ -131,10 +136,13 @@ class HTTPNodes:
             "query": query.model_dump(mode="json") if query else None,
             "evidence_considered": [e["evidence_id"] for e in state["evidence"]],
         }
+        stop_reason = ""
+        if query is None:
+            stop_reason = "tool_budget" if finish_only else "planner_finished"
         return {
             "decisions": [record],
             "pending_query": record["query"],
-            "stop_reason": "planner_finished" if query is None else "",
+            "stop_reason": stop_reason,
         }
 
     async def query(self, state):
@@ -185,6 +193,15 @@ class HTTPNodes:
                 "facts_source": "parsed_observations",
                 "facts": state["evidence"],
                 "decisions": state["decisions"],
+                "answer": (
+                    last.get("answer")
+                    if (
+                        last
+                        and last["action"] == "finish"
+                        and state["stop_reason"] in {"planner_finished", "tool_budget"}
+                    )
+                    else None
+                ),
                 "interpretation": {
                     "source": state["planner_kind"],
                     "semantic_review": "pending",

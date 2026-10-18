@@ -5,6 +5,7 @@ import asyncio
 import fcntl
 import json
 import re
+import sys
 from uuid import uuid4
 from zoneinfo import ZoneInfoNotFoundError
 
@@ -32,6 +33,12 @@ def main():
     parser.add_argument("--seconds", type=int)
     parser.add_argument("--llm-seconds", type=int, help="모델 호출당 제한 (기본 45초)")
     parser.add_argument("--tool-calls", type=int)
+    parser.add_argument(
+        "--output",
+        choices=["answer", "json"],
+        default="answer",
+        help="사용자 답변 또는 전체 JSON 출력",
+    )
     args = parser.parse_args()
     fields = (
         "planner",
@@ -78,20 +85,45 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             parser.error("같은 HTTP 조사가 이미 실행 중입니다.")
-        print(f"Thread ID: {directory.name}", flush=True)
+        output_stream = sys.stderr if args.output == "json" else sys.stdout
+        print(f"Thread ID: {directory.name}", flush=True, file=output_stream)
         try:
             result = asyncio.run(run(directory, state, step=args.step))
         except KeyboardInterrupt:
             print(
-                f"재개: uv run python -m ops_agent.cli.run_http_agent --resume {directory.name}"
+                f"재개: uv run python -m ops_agent.cli.run_http_agent --resume {directory.name}",
+                file=output_stream,
             )
             return 130
         except (ValueError, OSError) as exc:
             parser.error(str(exc))
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if args.output == "json":
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif result["status"] == "paused":
+        print("조사를 저장하고 일시 중단했습니다.")
+
+    elif answer := result.get("answer"):
+        print(answer["text"])
+        if result["status"] == "incomplete":
+            print(f"\n조사 미완료: {result['stop_reason']}")
+
+        if answer["evidence_ids"]:
+            print("\n근거: " + ", ".join(answer["evidence_ids"]))
+
+        if answer["limitations"]:
+            print("\n확인 한계:")
+            for limitation in answer["limitations"]:
+                print(f"- {limitation}")
+
+    else:
+        print("사용자 답변이 생성되지 않았습니다.")
+        print(f"종료 사유: {result.get('stop_reason', 'unknown')}")
+        print(f"저장된 근거: {len(result.get('facts', []))}건")
+        print(f"전체 결과: {directory / 'report.json'}")
     if result["status"] == "paused":
         print(
-            f"재개: uv run python -m ops_agent.cli.run_http_agent --resume {directory.name}"
+            f"재개: uv run python -m ops_agent.cli.run_http_agent --resume {directory.name}",
+            file=output_stream,
         )
     return 0 if result["status"] in {"completed", "paused"} else 1
 

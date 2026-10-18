@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from ops_agent.tools.http import HTTPMetric
 
-CONTRACT_VERSION = "http-agent-v1"
+CONTRACT_VERSION = "http-agent-v2"
 Window = Literal["previous", "first_half", "second_half"]
 Text = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=400)
@@ -21,6 +21,16 @@ class HTTPHypothesis(BaseModel):
     evidence_ids: list[str] = Field(min_length=1, max_length=6)
 
 
+class HTTPAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
+    ]
+    evidence_ids: list[str] = Field(default_factory=list, max_length=12)
+    limitations: list[Text] = Field(default_factory=list, max_length=5)
+
+
 class HTTPDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -30,6 +40,7 @@ class HTTPDecision(BaseModel):
     window: Window | None = None
     rationale: Text
     hypotheses: list[HTTPHypothesis] = Field(default_factory=list, max_length=3)
+    answer: HTTPAnswer | None = None
 
     @model_validator(mode="after")
     def check_fields(self):

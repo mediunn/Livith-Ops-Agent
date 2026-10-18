@@ -9,7 +9,7 @@ HTTP_ROOT = ARTIFACTS_DIR / "http"
 HTTP_DATASOURCE_UID = "grafanacloud-prom"
 HTTP_JOB = "livith-server-production"
 HTTP_AGENT_ROOT = ARTIFACTS_DIR / "http-agent"
-HTTP_AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "http_agent_v1.txt"
+HTTP_AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "http_agent_v2.txt"
 OLLAMA_HOST = "http://127.0.0.1:11434"
 
 AGENT_PROMPT_PATH = PROJECT_DIR / "prompts" / "agent" / "ops_agent_v10.txt"

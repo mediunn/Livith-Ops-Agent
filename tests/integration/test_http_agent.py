@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -99,3 +100,80 @@ def test_cli_passes_scope_and_prints_resume_instruction(tmp_path, monkeypatch, c
     )
     assert run_http_agent.main() == 0
     assert "--resume" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("output", ["answer", "json"])
+@pytest.mark.parametrize(
+    "status,reason,exit_code",
+    [("completed", "planner_finished", 0), ("incomplete", "tool_budget", 1)],
+)
+def test_cli_outputs_answer_or_parseable_json(
+    tmp_path, monkeypatch, capsys, output, status, reason, exit_code
+):
+    result = {
+        "status": status,
+        "stop_reason": reason,
+        "answer": {
+            "text": "평균 지연이 직전 구간보다 증가했습니다.",
+            "evidence_ids": ["current-latency", "previous-latency"],
+            "limitations": ["원인은 확인하지 못했습니다."],
+        },
+        "facts": [{"evidence_id": "current-latency"}],
+    }
+
+    async def fake_run(directory, state, *, step):
+        return result
+
+    monkeypatch.setattr(run_http_agent, "HTTP_AGENT_ROOT", tmp_path)
+    monkeypatch.setattr(run_http_agent, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["run_http_agent", "--output", output])
+    assert run_http_agent.main() == exit_code
+    captured = capsys.readouterr()
+    if output == "json":
+        assert json.loads(captured.out) == result
+        assert "Thread ID:" in captured.err
+    else:
+        assert result["answer"]["text"] in captured.out
+        assert "current-latency, previous-latency" in captured.out
+        assert result["answer"]["limitations"][0] in captured.out
+        if status == "incomplete":
+            assert "조사 미완료: tool_budget" in captured.out
+
+
+def test_cli_json_pause_keeps_resume_guidance_off_stdout(tmp_path, monkeypatch, capsys):
+    async def fake_run(directory, state, *, step):
+        return {"status": "paused", "thread_id": directory.name}
+
+    monkeypatch.setattr(run_http_agent, "HTTP_AGENT_ROOT", tmp_path)
+    monkeypatch.setattr(run_http_agent, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["run_http_agent", "--step", "--output", "json"])
+    assert run_http_agent.main() == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["status"] == "paused"
+    assert "--resume" in captured.err
+
+
+@pytest.mark.parametrize(
+    "status,reason,exit_code",
+    [("incomplete", "time_budget", 1), ("completed", "no_candidates", 0)],
+)
+def test_cli_without_model_answer_reports_status_and_saved_result(
+    tmp_path, monkeypatch, capsys, status, reason, exit_code
+):
+    async def fake_run(directory, state, *, step):
+        return {
+            "status": status,
+            "stop_reason": reason,
+            "answer": None,
+            "facts": [{"evidence_id": "current"}],
+        }
+
+    monkeypatch.setattr(run_http_agent, "HTTP_AGENT_ROOT", tmp_path)
+    monkeypatch.setattr(run_http_agent, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["run_http_agent"])
+    assert run_http_agent.main() == exit_code
+    output = capsys.readouterr().out
+    assert "사용자 답변이 생성되지 않았습니다." in output
+    assert reason in output
+    assert "저장된 근거: 1건" in output
+    assert "report.json" in output

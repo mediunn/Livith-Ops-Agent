@@ -32,16 +32,27 @@ uv run python -m ops_agent.cli.run_http_agent --resume THREAD_ID
 | `--seconds` | 조사 실행 예산 180초, 1~3,600초 |
 | `--llm-seconds` | 모델 호출당 45초, 1~180초. 남은 조사 시간을 함께 적용 |
 | `--tool-calls` | 초기 두 조회를 포함해 6회, 2~10회 |
+| `--output` | `answer`(기본) 또는 전체 조사 결과인 `json` |
 
 정상적인 `--step` 중단 시간은 HTTP 실행 예산에서 제외합니다. 재개할 때는 저장된 설정을
 사용하므로 새 모델·대상·예산 옵션을 함께 지정할 수 없습니다. 실행·재개 한 번에 MCP 세션 하나를 공유합니다.
 
 결과는 `artifacts/http-agent/<thread_id>/report.json`에 저장합니다.
+기본 CLI 출력은 LLM의 답변·근거 ID·확인 한계입니다. `--output json`은 전체 결과를 출력하며,
+조사 ID와 재개 안내는 stderr에 남깁니다. 규칙 planner 또는 모델 판단 없이 종료한 결과에는
+사용자 답변이 없을 수 있으며, 이 경우 종료 사유와 저장 위치를 표시합니다.
+도구 한도에 도달해도 남은 모델·시간·토큰 예산으로 마지막 관측을 검토하고 답변할 수 있습니다.
+이때 결과는 `incomplete`와 `tool_budget`을 유지하고 CLI에도 미완료 사유를 표시합니다.
+모델 예산도 부족하면 답변 없이 종료하고 미검토 근거를 기록합니다.
+
+신규 HTTP 상태 계약은 `http-agent-v2`입니다. 기존 v1 체크포인트는 새 코드에서 재개하지 않으며,
+저장된 결과는 보존됩니다. 새 조사를 시작해야 합니다.
 
 | 필드 | 내용 |
 |---|---|
 | `facts` | 파싱한 관측값, 조회 조건, 단위와 근거 ID |
 | `decisions` | 후속 조회·종료 선택과 당시 가설 |
+| `answer` | 모델이 종료 판단과 함께 작성한 답변·근거 ID·확인 한계. 없으면 `null` |
 | `interpretation.hypotheses` | 마지막으로 반영된 모델 가설 |
 | `interpretation.unreviewed_evidence_ids` | 마지막 판단 이후 추가된 근거 |
 | `status`, `stop_reason` | 완료·미완료 상태와 종료 사유 |

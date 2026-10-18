@@ -10,6 +10,7 @@ import pytest
 from ops_agent.agent.http import planner
 from ops_agent.agent.http.graph import initial_state
 from ops_agent.cli import evaluate_http_agent
+from ops_agent.config import HTTP_AGENT_PROMPT_PATH, PROJECT_DIR
 from ops_agent.evaluation.http_agent import CASES, SCOPE, evaluate
 from ops_agent.evaluation.http_metrics import call_metrics, classify
 from ops_agent.persistence.artifacts import read_json, save_json
@@ -42,7 +43,8 @@ def test_repeated_models_rotate_and_rule_baseline_is_not_duplicated(tmp_path):
     assert read_json(root / "summary.json") == summary
     metadata = read_json(root / "metadata.json")
     assert metadata["limits"]["llm_seconds"] == 90
-    assert metadata["source_hashes"]["prompts/agent/http_agent_v1.txt"]
+    prompt_key = HTTP_AGENT_PROMPT_PATH.relative_to(PROJECT_DIR).as_posix()
+    assert metadata["source_hashes"][prompt_key]
     for row in summary["results"]:
         assert read_json(Path(row["report"]))["limits"]["llm_seconds"] == 90
         assert row["outcome"] == "no_data_handled"
@@ -173,7 +175,17 @@ def test_planner_respects_saved_limit_and_remaining_budget(
             seen.append(timeout)
 
         async def chat(self, **kwargs):
-            content = json.dumps({"action": "finish", "rationale": "No more evidence"})
+            content = json.dumps(
+                {
+                    "action": "finish",
+                    "rationale": "No more evidence",
+                    "answer": {
+                        "text": "No observations are available to assess the symptom.",
+                        "evidence_ids": [],
+                        "limitations": ["No data has been collected."],
+                    },
+                }
+            )
             return SimpleNamespace(
                 done=True,
                 done_reason="stop",
